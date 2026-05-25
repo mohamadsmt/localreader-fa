@@ -5,8 +5,52 @@
 :root {
   color-scheme: light;
   font-family: "Vazirmatn Variable", system-ui, sans-serif;
-  background: #f4f0e8;
-  color: #171717;
+  --bg: #f4f0e8;
+  --panel: #fbfaf7;
+  --panel-2: #f8f5ee;
+  --text: #171717;
+  --muted: #756f66;
+  --line: #e3dbcf;
+  --accent: #9b5f2b;
+  --accent-2: #49654a;
+  --danger: #c94848;
+  --danger-text: #a83232;
+  --focus-ring: #b77639;
+  --on-accent: #ffffff;
+  background: var(--bg);
+  color: var(--text);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111311;
+  --panel: #181a18;
+  --panel-2: #20231f;
+  --text: #f4f0e8;
+  --muted: #b7afa3;
+  --line: #30342f;
+  --accent: #d09a5e;
+  --accent-2: #8fb487;
+  --danger: #f06b6b;
+  --danger-text: #ff9b9b;
+  --focus-ring: #e2a86b;
+  --on-accent: #111311;
+}
+
+:root[data-theme="sepia"] {
+  color-scheme: light;
+  --bg: #ede2cf;
+  --panel: #f7eddb;
+  --panel-2: #efe2cc;
+  --text: #2b2219;
+  --muted: #7c6752;
+  --line: #dccab0;
+  --accent: #955d2d;
+  --accent-2: #667649;
+  --danger: #b94b3f;
+  --danger-text: #8d332a;
+  --focus-ring: #a86636;
+  --on-accent: #ffffff;
 }
 
 * {
@@ -16,7 +60,8 @@
 body {
   margin: 0;
   min-width: 320px;
-  background: #f4f0e8;
+  background: var(--bg);
+  color: var(--text);
 }
 
 button,
@@ -54,7 +99,7 @@ button:active:not(:disabled),
 button:focus,
 button:focus-visible,
 .upload-button:focus-within {
-  outline: 2px solid color-mix(in srgb, var(--accent) 72%, white);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -75,6 +120,7 @@ button[aria-busy="true"] {
 }
 
 .theme-light {
+  color-scheme: light;
   --bg: #f4f0e8;
   --panel: #fbfaf7;
   --panel-2: #f8f5ee;
@@ -83,9 +129,14 @@ button[aria-busy="true"] {
   --line: #e3dbcf;
   --accent: #9b5f2b;
   --accent-2: #49654a;
+  --danger: #c94848;
+  --danger-text: #a83232;
+  --focus-ring: #b77639;
+  --on-accent: #ffffff;
 }
 
 .theme-dark {
+  color-scheme: dark;
   --bg: #111311;
   --panel: #181a18;
   --panel-2: #20231f;
@@ -94,9 +145,14 @@ button[aria-busy="true"] {
   --line: #30342f;
   --accent: #d09a5e;
   --accent-2: #8fb487;
+  --danger: #f06b6b;
+  --danger-text: #ff9b9b;
+  --focus-ring: #e2a86b;
+  --on-accent: #111311;
 }
 
 .theme-sepia {
+  color-scheme: light;
   --bg: #ede2cf;
   --panel: #f7eddb;
   --panel-2: #efe2cc;
@@ -105,6 +161,10 @@ button[aria-busy="true"] {
   --line: #dccab0;
   --accent: #955d2d;
   --accent-2: #667649;
+  --danger: #b94b3f;
+  --danger-text: #8d332a;
+  --focus-ring: #a86636;
+  --on-accent: #ffffff;
 }
 
 .sidebar {
@@ -308,6 +368,14 @@ button[aria-busy="true"] {
   color: var(--panel) !important;
 }
 
+.theme-toggle {
+  min-width: 82px;
+}
+
+.theme-toggle svg {
+  color: var(--accent);
+}
+
 .primary-action:hover:not(:disabled),
 .toggle-language:hover:not(:disabled) {
   background: color-mix(in srgb, var(--text) 86%, var(--accent)) !important;
@@ -325,10 +393,10 @@ button[aria-busy="true"] {
 .readiness-banner {
   margin: 14px 24px 0;
   padding: 12px 14px;
-  border: 1px solid color-mix(in srgb, #d33 35%, var(--line));
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--line));
   border-radius: 8px;
-  color: #a83232;
-  background: color-mix(in srgb, #d33 8%, var(--panel));
+  color: var(--danger-text);
+  background: color-mix(in srgb, var(--danger) 8%, var(--panel));
 }
 
 .readiness-banner {
@@ -519,7 +587,7 @@ button[aria-busy="true"] {
 }
 
 .status-dot.failed {
-  background: #c94848;
+  background: var(--danger);
 }
 
 .status-dot.processing,
@@ -753,12 +821,12 @@ button[aria-busy="true"] {
 
 .setting-toggle button.on {
   background: var(--accent-2);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .setting-toggle button[aria-pressed="true"] {
   border-color: transparent;
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, #fff 24%, transparent);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--on-accent) 24%, transparent);
 }
 
 .table-list {
@@ -794,7 +862,7 @@ button[aria-busy="true"] {
 }
 
 .table-row em {
-  color: #bd3c3c;
+  color: var(--danger-text);
   font-style: normal;
 }
 
@@ -807,7 +875,7 @@ button[aria-busy="true"] {
 }
 
 .job-status.failed {
-  color: #bd3c3c;
+  color: var(--danger-text);
 }
 
 .job-status.completed {

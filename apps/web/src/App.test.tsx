@@ -68,6 +68,27 @@ const readyReadiness: ReadinessStatus = {
   lastError: null
 };
 
+const baseSettings = {
+  translationConfigured: true,
+  databasePath: "db",
+  translationEnabled: true,
+  autoTranslateNewArticles: true,
+  backgroundPrepEnabled: true,
+  autoRetryFailedTranslations: true,
+  translationConcurrency: 1,
+  defaultRefreshIntervalMinutes: 60,
+  fullTextExtractionEnabled: true,
+  loadRemoteImages: false,
+  theme: "light",
+  fontSize: 18,
+  readerWidth: 780,
+  markReadDelaySeconds: 0,
+  markReadScrollThreshold: 0.75,
+  translationProvider: "ollama",
+  ollamaModel: "gpt-oss:20b",
+  deepseekModel: "deepseek-v4-pro"
+};
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -119,27 +140,7 @@ describe("App reader", () => {
       vi.fn((input: RequestInfo | URL) => {
         const url =
           typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-        if (url.startsWith("/api/settings"))
-          return json({
-            translationConfigured: true,
-            databasePath: "db",
-            translationEnabled: true,
-            autoTranslateNewArticles: true,
-            backgroundPrepEnabled: true,
-            autoRetryFailedTranslations: true,
-            translationConcurrency: 1,
-            defaultRefreshIntervalMinutes: 60,
-            fullTextExtractionEnabled: true,
-            loadRemoteImages: false,
-            theme: "light",
-            fontSize: 18,
-            readerWidth: 780,
-            markReadDelaySeconds: 0,
-            markReadScrollThreshold: 0.75,
-            translationProvider: "ollama",
-            ollamaModel: "gpt-oss:20b",
-            deepseekModel: "deepseek-v4-pro"
-          });
+        if (url.startsWith("/api/settings")) return json(baseSettings);
         if (url.startsWith("/api/readiness")) return json(readyReadiness);
         if (url.startsWith("/api/feeds")) return json([]);
         if (url.startsWith("/api/folders")) return json([]);
@@ -158,6 +159,55 @@ describe("App reader", () => {
     await waitFor(() => expect(screen.getAllByText("Original title").length).toBeGreaterThan(0));
   });
 
+  it("applies the persisted dark theme from settings", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.startsWith("/api/settings")) return json({ ...baseSettings, theme: "dark" });
+        if (url.startsWith("/api/readiness")) return json(readyReadiness);
+        if (url.startsWith("/api/feeds")) return json([]);
+        if (url.startsWith("/api/folders")) return json([]);
+        if (url.startsWith("/api/tags")) return json([]);
+        if (url.startsWith("/api/articles/a1")) return json(article);
+        if (url.startsWith("/api/articles")) return json({ items: [article], total: 1 });
+        return json({});
+      })
+    );
+    render(<App />);
+    expect(await screen.findByTestId("app-shell")).toHaveClass("theme-dark");
+  });
+
+  it("persists quick dark theme changes from the topbar", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.startsWith("/api/settings") && init?.method === "PATCH") {
+        const patch = JSON.parse(requestBodyText(init.body)) as Record<string, unknown>;
+        return json({ ...baseSettings, ...patch });
+      }
+      if (url.startsWith("/api/settings")) return json(baseSettings);
+      if (url.startsWith("/api/readiness")) return json(readyReadiness);
+      if (url.startsWith("/api/feeds")) return json([]);
+      if (url.startsWith("/api/folders")) return json([]);
+      if (url.startsWith("/api/tags")) return json([]);
+      if (url.startsWith("/api/articles/a1")) return json(article);
+      if (url.startsWith("/api/articles")) return json({ items: [article], total: 1 });
+      return json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "تم تاریک" }));
+    await waitFor(() => expect(screen.getByTestId("app-shell")).toHaveClass("theme-dark"));
+    const settingsPatch = fetchMock.mock.calls.find(
+      ([url, init]) => url === "/api/settings" && init?.method === "PATCH"
+    );
+    expect(settingsPatch).toBeDefined();
+    if (!settingsPatch) throw new Error("settings PATCH was not called");
+    expect(JSON.parse(requestBodyText(settingsPatch[1]?.body))).toEqual({ theme: "dark" });
+  });
+
   it("shows prepare-now busy state while the request is running", async () => {
     let resolvePrepare: (response: Response) => void = () => {};
     const preparePromise = new Promise<Response>((resolve) => {
@@ -168,27 +218,7 @@ describe("App reader", () => {
       vi.fn((input: RequestInfo | URL) => {
         const url =
           typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-        if (url.startsWith("/api/settings"))
-          return json({
-            translationConfigured: true,
-            databasePath: "db",
-            translationEnabled: true,
-            autoTranslateNewArticles: true,
-            backgroundPrepEnabled: true,
-            autoRetryFailedTranslations: true,
-            translationConcurrency: 1,
-            defaultRefreshIntervalMinutes: 60,
-            fullTextExtractionEnabled: true,
-            loadRemoteImages: false,
-            theme: "light",
-            fontSize: 18,
-            readerWidth: 780,
-            markReadDelaySeconds: 0,
-            markReadScrollThreshold: 0.75,
-            translationProvider: "ollama",
-            ollamaModel: "gpt-oss:20b",
-            deepseekModel: "deepseek-v4-pro"
-          });
+        if (url.startsWith("/api/settings")) return json(baseSettings);
         if (url.startsWith("/api/readiness"))
           return json({
             ...readyReadiness,
@@ -222,4 +252,9 @@ describe("App reader", () => {
 
 function json(value: unknown): Response {
   return new Response(JSON.stringify(value), { headers: { "content-type": "application/json" } });
+}
+
+function requestBodyText(body: BodyInit | null | undefined): string {
+  if (typeof body === "string") return body;
+  throw new Error("expected request body to be a string");
 }

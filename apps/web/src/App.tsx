@@ -14,18 +14,21 @@ import {
   Inbox,
   Languages,
   Loader2,
+  Moon,
   Plus,
   RefreshCw,
   Search,
   Settings,
   Sparkles,
   Star,
+  Sun,
   Upload,
   Zap
 } from "lucide-react";
 import type {
   ApiSettings,
   ArticleViewMode,
+  SettingsPatchInput,
   ThemeName,
   TranslationProvider
 } from "@localreader/shared";
@@ -262,6 +265,15 @@ export function App(): JSX.Element {
     setReadiness(result);
   }, []);
 
+  const updateSettings = useCallback(async (patch: SettingsPatchInput): Promise<ApiSettings> => {
+    const next = await api<ApiSettings>("/api/settings", {
+      method: "PATCH",
+      body: JSON.stringify(patch)
+    });
+    setSettings(next);
+    return next;
+  }, []);
+
   const refreshAll = useCallback(async () => {
     setIsRefreshing(true);
     setStatus("درخواست تازه‌سازی ثبت شد");
@@ -329,6 +341,13 @@ export function App(): JSX.Element {
       setError(err instanceof Error ? err.message : String(err))
     );
   }, [loadArticle, selectedId]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = settings.theme;
+    return () => {
+      delete document.documentElement.dataset.theme;
+    };
+  }, [settings.theme]);
 
   const updateArticle = useCallback(
     async (
@@ -435,6 +454,10 @@ export function App(): JSX.Element {
               <Plus size={16} />
               افزودن فید
             </button>
+            <ThemeQuickToggle
+              theme={settings.theme}
+              onToggle={() => void updateSettings({ theme: nextQuickTheme(settings.theme) })}
+            />
             <button
               className="quiet-action"
               onClick={() => void prepareNow()}
@@ -490,11 +513,30 @@ export function App(): JSX.Element {
         {page === "highlights" ? <HighlightsPanel /> : null}
         {page === "jobs" ? <JobsPanel /> : null}
         {page === "settings" ? (
-          <SettingsPanel settings={settings} setSettings={setSettings} reload={loadMeta} />
+          <SettingsPanel settings={settings} updateSettings={updateSettings} reload={loadMeta} />
         ) : null}
       </main>
     </div>
   );
+}
+
+function ThemeQuickToggle(props: {
+  theme: ThemeName;
+  onToggle: () => void;
+}): JSX.Element {
+  const isDark = props.theme === "dark";
+  const label = isDark ? "تم روشن" : "تم تاریک";
+  const Icon = isDark ? Sun : Moon;
+  return (
+    <button className="quiet-action theme-toggle" onClick={props.onToggle} aria-label={label}>
+      <Icon size={16} />
+      {isDark ? "روشن" : "تاریک"}
+    </button>
+  );
+}
+
+function nextQuickTheme(theme: ThemeName): ThemeName {
+  return theme === "dark" ? "light" : "dark";
 }
 
 function Sidebar(props: {
@@ -1243,15 +1285,11 @@ function JobsPanel(): JSX.Element {
 
 function SettingsPanel(props: {
   settings: ApiSettings;
-  setSettings: (settings: ApiSettings) => void;
+  updateSettings: (patch: SettingsPatchInput) => Promise<ApiSettings>;
   reload: () => Promise<void>;
 }): JSX.Element {
-  const update = async (patch: Partial<ApiSettings>): Promise<void> => {
-    const next = await api<ApiSettings>("/api/settings", {
-      method: "PATCH",
-      body: JSON.stringify(patch)
-    });
-    props.setSettings(next);
+  const update = async (patch: SettingsPatchInput): Promise<void> => {
+    await props.updateSettings(patch);
   };
   return (
     <section className="panel-page">

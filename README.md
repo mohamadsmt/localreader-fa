@@ -13,6 +13,7 @@ LocalReader FA is a local-first bilingual RSS/Atom/JSON Feed reader for long-for
 - Translation through either Metis DeepSeek or local Ollama, selected with `TRANSLATION_PROVIDER`.
 - Stores original title/body and Persian title/body/summary separately.
 - Persian/English toggle in the reader, plus side-by-side mode.
+- Light, dark, and sepia reading themes with a quick theme toggle.
 - SQLite FTS5 search across English and Persian content, author, feed title, and tags.
 - Local rules for read/star/archive/tag/skip-translation/translate-now/read-later actions.
 - Highlights and notes for original and translated content.
