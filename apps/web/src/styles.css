@@ -28,6 +28,42 @@ textarea {
 
 button {
   cursor: pointer;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.08s ease,
+    opacity 0.16s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:hover:not(:disabled),
+.upload-button:hover {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+  background: color-mix(in srgb, var(--panel-2) 86%, var(--accent) 14%);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+button:active:not(:disabled),
+.upload-button:active {
+  transform: translateY(1px);
+  box-shadow: none;
+}
+
+button:focus,
+button:focus-visible,
+.upload-button:focus-within {
+  outline: 2px solid color-mix(in srgb, var(--accent) 72%, white);
+  outline-offset: 2px;
+}
+
+button:disabled,
+button[aria-busy="true"] {
+  cursor: default;
+  opacity: 0.62;
+  transform: none;
+  box-shadow: none;
 }
 
 .app-shell {
@@ -147,8 +183,17 @@ button {
 .nav-list button:hover,
 .sidebar-section button:hover,
 .nav-list button.active,
-.sidebar-section button.active {
+.sidebar-section button.active,
+.nav-list button[aria-pressed="true"],
+.sidebar-section button[aria-pressed="true"] {
   background: var(--panel-2);
+}
+
+.nav-list button.active,
+.sidebar-section button.active,
+.nav-list button[aria-pressed="true"],
+.sidebar-section button[aria-pressed="true"] {
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .utility {
@@ -263,6 +308,17 @@ button {
   color: var(--panel) !important;
 }
 
+.primary-action:hover:not(:disabled),
+.toggle-language:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 86%, var(--accent)) !important;
+}
+
+.quiet-action[aria-busy="true"],
+.refresh-button[aria-busy="true"],
+.readiness-banner button[aria-busy="true"] {
+  background: var(--panel-2);
+}
+
 .error-state,
 .inline-message,
 .feed-alert,
@@ -279,6 +335,7 @@ button {
   border-color: color-mix(in srgb, var(--accent-2) 35%, var(--line));
   color: var(--text);
   background: color-mix(in srgb, var(--accent-2) 8%, var(--panel));
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--text) 5%, transparent);
 }
 
 .readiness-banner.attention {
@@ -294,20 +351,58 @@ button {
   gap: 14px;
 }
 
-.feed-alert div,
-.readiness-banner div {
+.feed-alert > div,
+.readiness-copy {
   display: grid;
   gap: 4px;
 }
 
 .feed-alert span,
-.readiness-banner span {
+.readiness-banner span,
+.queue-breakdown {
   color: var(--muted);
   font-size: 13px;
 }
 
+.readiness-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.readiness-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.readiness-heading b {
+  color: var(--accent-2);
+  font-size: 18px;
+}
+
+.queue-progress {
+  height: 7px;
+  margin: 8px 0 2px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 74%, var(--panel));
+}
+
+.queue-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent-2), var(--accent));
+  transition: width 0.28s ease;
+}
+
 .feed-alert button,
 .readiness-banner button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   min-height: 34px;
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -368,8 +463,25 @@ button {
 }
 
 .article-row:hover,
-.article-row.selected {
+.article-row.selected,
+.article-row[aria-pressed="true"] {
   background: var(--panel-2);
+}
+
+.article-row:hover {
+  border-bottom-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+}
+
+.article-row.selected,
+.article-row[aria-pressed="true"] {
+  box-shadow: inset 3px 0 0 var(--accent-2);
+}
+
+.article-row.selected:hover,
+.article-row[aria-pressed="true"]:hover {
+  box-shadow:
+    inset 3px 0 0 var(--accent-2),
+    0 1px 0 color-mix(in srgb, var(--text) 10%, transparent);
 }
 
 .article-row.read {
@@ -458,6 +570,13 @@ button {
   height: 100%;
   border-radius: inherit;
   background: var(--accent);
+}
+
+.reader-actions button.active,
+.reader-actions button[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--line));
+  background: color-mix(in srgb, var(--accent) 13%, var(--panel));
+  color: var(--accent);
 }
 
 .reader-lead-image {
@@ -637,6 +756,11 @@ button {
   color: #fff;
 }
 
+.setting-toggle button[aria-pressed="true"] {
+  border-color: transparent;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, #fff 24%, transparent);
+}
+
 .table-list {
   display: grid;
   border: 1px solid var(--line);
@@ -753,8 +877,17 @@ button {
   .topbar-actions,
   .reader-actions,
   .form-line,
-  .export-actions {
+  .export-actions,
+  .readiness-banner {
     flex-wrap: wrap;
+  }
+
+  .readiness-banner {
+    align-items: stretch;
+  }
+
+  .readiness-banner button {
+    width: 100%;
   }
 
   .search-box {

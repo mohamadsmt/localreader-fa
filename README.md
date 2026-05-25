@@ -120,3 +120,7 @@ pnpm seed             # seed sample local content
 ## Backup And Restore
 
 OPML import/export is implemented for subscriptions. JSON backup export includes feeds, folders, articles, translations, tags, notes, highlights, rules, saved searches, and settings. Full JSON restore is intentionally left as future work so merge/conflict behavior can be designed carefully.
+
+## License
+
+MIT License. See [LICENSE](./LICENSE).

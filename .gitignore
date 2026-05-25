@@ -1,9 +1,51 @@
+# OS / editor noise
 .DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Local env and secrets
 .env
 .env.*
 !.env.example
+.envrc
+.direnv/
+.npmrc
+.pnpmrc
+*.local
+*.local.*
 
+# Private keys, certificates, credentials, and tokens
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+*.crt
+*.cer
+*.csr
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+secrets/
+.secrets/
+credentials/
+.credentials/
+tokens/
+.tokens/
+private/
+.private/
+
+# Dependencies and package-manager caches
 node_modules/
+.pnpm-store/
+.npm/
+.yarn/
+
+# Build, test, and tool output
 dist/
 build/
 coverage/
@@ -11,15 +53,51 @@ coverage/
 .vite/
 playwright-report/
 test-results/
+blob-report/
+storybook-static/
 
+# LocalReader private data
 data/
 logs/
+cache/
+tmp/
+temp/
+uploads/
+downloads/
+article-images/
+image-cache/
+media-cache/
 *.log
 *.sqlite
+*.sqlite3
+*.db
+*.db3
 *.sqlite-journal
 *.sqlite-wal
 *.sqlite-shm
+*.db-journal
+*.db-wal
+*.db-shm
 
+# User subscriptions, private feed URLs, backups, and exports
+exports/
+backups/
+imports/
+subscriptions/
+*.opml
+*.opml.xml
+localreader-fa-backup*.json
+backup*.json
+feeds.local.*
+subscriptions.local.*
+private-feeds.*
+private-links.*
+personal-links.*
+links.txt
+urls.txt
+rss-feeds.txt
+
+# Prisma local databases
 apps/api/prisma/dev.db
 apps/api/prisma/dev.db-journal
 apps/api/prisma/dev.db-wal

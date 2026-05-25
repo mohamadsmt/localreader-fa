@@ -155,7 +155,7 @@ interface RuleRecord {
   actionsJson: string;
 }
 
-interface ReadinessStatus {
+export interface ReadinessStatus {
   isPreparing: boolean;
   readyUnreadCount: number;
   unreadCount: number;
@@ -169,6 +169,13 @@ interface ReadinessStatus {
   feedsWithErrors: number;
   nextFeedCheckAt: string | null;
   lastError: string | null;
+}
+
+export interface QueueProgress {
+  total: number;
+  ready: number;
+  percent: number;
+  activeWork: number;
 }
 
 const defaultSettings: ApiSettings = {
@@ -210,6 +217,8 @@ export function App(): JSX.Element {
   const [readiness, setReadiness] = useState<ReadinessStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isPreparingNow, setIsPreparingNow] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const loadMeta = useCallback(async () => {
@@ -248,24 +257,35 @@ export function App(): JSX.Element {
     setArticle(detail);
   }, []);
 
-  const refreshAll = useCallback(async () => {
-    setStatus("درخواست تازه‌سازی ثبت شد");
-    await api<{ ok: boolean }>("/api/refresh-all", { method: "POST", body: "{}" });
-  }, []);
-
   const loadReadiness = useCallback(async () => {
     const result = await api<ReadinessStatus>("/api/readiness");
     setReadiness(result);
   }, []);
 
+  const refreshAll = useCallback(async () => {
+    setIsRefreshing(true);
+    setStatus("درخواست تازه‌سازی ثبت شد");
+    try {
+      await api<{ ok: boolean }>("/api/refresh-all", { method: "POST", body: "{}" });
+      await loadReadiness();
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [loadReadiness]);
+
   const prepareNow = useCallback(async () => {
+    setIsPreparingNow(true);
     setStatus("آماده‌سازی پشت‌صحنه شروع شد");
-    const result = await api<{ readiness: ReadinessStatus }>("/api/prepare-now", {
-      method: "POST",
-      body: "{}"
-    });
-    setReadiness(result.readiness);
-    await Promise.all([loadMeta(), loadArticles()]);
+    try {
+      const result = await api<{ readiness: ReadinessStatus }>("/api/prepare-now", {
+        method: "POST",
+        body: "{}"
+      });
+      setReadiness(result.readiness);
+      await Promise.all([loadMeta(), loadArticles()]);
+    } finally {
+      setIsPreparingNow(false);
+    }
   }, [loadArticles, loadMeta]);
 
   useEffect(() => {
@@ -391,6 +411,7 @@ export function App(): JSX.Element {
         setFeedFilter={setFeedFilter}
         setTagFilter={setTagFilter}
         refreshAll={refreshAll}
+        isRefreshing={isRefreshing}
       />
 
       <main className="workspace">
@@ -414,15 +435,26 @@ export function App(): JSX.Element {
               <Plus size={16} />
               افزودن فید
             </button>
-            <button className="quiet-action" onClick={() => void prepareNow()}>
-              <RefreshCw size={16} />
-              آماده‌سازی
+            <button
+              className="quiet-action"
+              onClick={() => void prepareNow()}
+              disabled={isPreparingNow}
+              aria-busy={isPreparingNow}
+            >
+              <RefreshCw className={isPreparingNow ? "spin" : ""} size={16} />
+              {isPreparingNow ? "در حال آماده‌سازی" : "آماده‌سازی"}
             </button>
           </div>
         </header>
 
         {error ? <div className="error-state">{error}</div> : null}
-        {readiness ? <ReadinessBanner readiness={readiness} onPrepare={prepareNow} /> : null}
+        {readiness ? (
+          <ReadinessBanner
+            readiness={readiness}
+            onPrepare={prepareNow}
+            isPreparingNow={isPreparingNow}
+          />
+        ) : null}
         {failedFeeds.length ? (
           <FeedIssueBanner feeds={failedFeeds} onOpenFeeds={() => setPage("feeds")} />
         ) : null}
@@ -478,6 +510,7 @@ function Sidebar(props: {
   setFeedFilter: (id: string | null) => void;
   setTagFilter: (name: string | null) => void;
   refreshAll: () => Promise<void>;
+  isRefreshing: boolean;
 }): JSX.Element {
   const filters: Array<[FilterKey, string, JSX.Element]> = [
     ["all", "همه", <Inbox size={17} key="all" />],
@@ -509,6 +542,7 @@ function Sidebar(props: {
           <button
             key={key}
             className={props.filter === key && props.page === "reader" ? "active" : ""}
+            aria-pressed={props.filter === key && props.page === "reader"}
             onClick={() => props.setFilter(key)}
           >
             {icon}
@@ -531,6 +565,7 @@ function Sidebar(props: {
           <button
             key={feed.id}
             className={props.feedFilter === feed.id ? "active" : ""}
+            aria-pressed={props.feedFilter === feed.id}
             onClick={() => {
               props.setFeedFilter(feed.id);
               props.setTagFilter(null);
@@ -548,6 +583,7 @@ function Sidebar(props: {
           <button
             key={tag.id}
             className={props.tagFilter === tag.name ? "active" : ""}
+            aria-pressed={props.tagFilter === tag.name}
             onClick={() => {
               props.setTagFilter(tag.name);
               props.setFeedFilter(null);
@@ -563,6 +599,7 @@ function Sidebar(props: {
           <button
             key={key}
             className={props.page === key ? "active" : ""}
+            aria-pressed={props.page === key}
             onClick={() => props.setPage(key)}
           >
             {icon}
@@ -570,9 +607,14 @@ function Sidebar(props: {
           </button>
         ))}
       </nav>
-      <button className="refresh-button" onClick={() => void props.refreshAll()}>
-        <RefreshCw size={16} />
-        تازه‌سازی همه
+      <button
+        className="refresh-button"
+        onClick={() => void props.refreshAll()}
+        disabled={props.isRefreshing}
+        aria-busy={props.isRefreshing}
+      >
+        <RefreshCw className={props.isRefreshing ? "spin" : ""} size={16} />
+        {props.isRefreshing ? "در حال تازه‌سازی" : "تازه‌سازی همه"}
       </button>
     </aside>
   );
@@ -599,9 +641,18 @@ function FeedIssueBanner(props: { feeds: Feed[]; onOpenFeeds: () => void }): JSX
 function ReadinessBanner(props: {
   readiness: ReadinessStatus;
   onPrepare: () => Promise<void>;
+  isPreparingNow: boolean;
 }): JSX.Element {
   const r = props.readiness;
-  if (!r.isPreparing && !r.failedJobs && !r.feedsWithErrors && !r.failedTranslations) return <></>;
+  if (
+    !r.unreadCount &&
+    !r.isPreparing &&
+    !r.failedJobs &&
+    !r.feedsWithErrors &&
+    !r.failedTranslations
+  )
+    return <></>;
+  const progress = calculateReadinessProgress(r);
   const parts = [
     r.pendingTranslations || r.processingTranslations
       ? `${(r.pendingTranslations + r.processingTranslations).toLocaleString("fa-IR")} ترجمه`
@@ -615,13 +666,53 @@ function ReadinessBanner(props: {
       : null,
     r.feedsWithErrors ? `${r.feedsWithErrors.toLocaleString("fa-IR")} فید مشکل‌دار` : null
   ].filter(Boolean);
+  const title =
+    progress.percent === 100 && !r.isPreparing
+      ? "همه مقاله‌ها آماده خواندن"
+      : r.isPreparing
+        ? "در حال آماده‌سازی برای خواندن"
+        : "بخشی از صف آماده است";
+  const tone =
+    r.failedJobs || r.failedTranslations || r.feedsWithErrors
+      ? "attention"
+      : r.isPreparing || progress.activeWork
+        ? "busy"
+        : "complete";
   return (
-    <div className={`readiness-banner ${r.isPreparing ? "busy" : "attention"}`} role="status">
-      <div>
-        <strong>{r.isPreparing ? "در حال آماده‌سازی برای خواندن" : "نیاز به توجه"}</strong>
-        <span>{parts.length ? parts.join(" · ") : "همه چیز آماده است"}</span>
+    <div className={`readiness-banner ${tone}`} role="status">
+      <div className="readiness-copy">
+        <div className="readiness-heading">
+          <strong>{title}</strong>
+          <b>{progress.percent.toLocaleString("fa-IR")}٪</b>
+        </div>
+        <span>
+          {progress.ready.toLocaleString("fa-IR")} از {progress.total.toLocaleString("fa-IR")} آماده
+          {progress.activeWork
+            ? ` · ${progress.activeWork.toLocaleString("fa-IR")} کار پس‌زمینه`
+            : ""}
+        </span>
+        <div
+          className="queue-progress"
+          role="progressbar"
+          aria-label="پیشرفت آماده‌سازی صف"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={progress.percent}
+        >
+          <span style={{ width: `${progress.percent}%` }} />
+        </div>
+        <div className="queue-breakdown">
+          {parts.length ? parts.join(" · ") : "صف فعالی وجود ندارد"}
+        </div>
       </div>
-      <button onClick={() => void props.onPrepare()}>الان آماده کن</button>
+      <button
+        onClick={() => void props.onPrepare()}
+        disabled={props.isPreparingNow}
+        aria-busy={props.isPreparingNow}
+      >
+        <RefreshCw className={props.isPreparingNow ? "spin" : ""} size={15} />
+        {props.isPreparingNow ? "در حال آماده‌سازی" : "الان آماده کن"}
+      </button>
     </div>
   );
 }
@@ -657,6 +748,7 @@ function ArticleList(props: {
         <button
           key={article.id}
           className={`article-row ${props.selectedId === article.id ? "selected" : ""} ${article.isRead ? "read" : ""}`}
+          aria-pressed={props.selectedId === article.id}
           onClick={() => props.setSelectedId(article.id)}
         >
           <span className={`status-dot ${article.translationStatus}`} />
@@ -802,13 +894,23 @@ function ReaderPane(props: {
             <button
               className="toggle-language"
               data-testid="language-toggle"
+              aria-label="تغییر زبان"
               onClick={() => props.setViewMode((mode) => nextLanguageMode(mode))}
             >
               <Languages size={17} />
               {props.viewMode === "persian" ? "English" : "فارسی"}
             </button>
-            <button onClick={() => props.setViewMode("split")}>دو ستونه</button>
             <button
+              className={props.viewMode === "split" ? "active" : ""}
+              aria-pressed={props.viewMode === "split"}
+              onClick={() => props.setViewMode("split")}
+            >
+              دو ستونه
+            </button>
+            <button
+              className={article.isStarred ? "active" : ""}
+              aria-pressed={article.isStarred}
+              aria-label={article.isStarred ? "حذف ستاره" : "ستاره‌دار کردن"}
               onClick={() =>
                 void props.updateArticle(article.id, { isStarred: !article.isStarred })
               }
@@ -1293,7 +1395,11 @@ function SettingToggle(props: {
   return (
     <label className="setting-toggle">
       <span>{props.label}</span>
-      <button className={props.value ? "on" : ""} onClick={() => props.onChange(!props.value)}>
+      <button
+        className={props.value ? "on" : ""}
+        aria-pressed={props.value}
+        onClick={() => props.onChange(!props.value)}
+      >
         {props.value ? <Check size={15} /> : null}
       </button>
     </label>
@@ -1321,13 +1427,28 @@ function translationStatusLabel(status: string): string {
   return labels[status] ?? status;
 }
 
-function readinessText(readiness: ReadinessStatus, fallback: string): string {
+export function calculateReadinessProgress(readiness: ReadinessStatus): QueueProgress {
+  const total = readiness.unreadCount;
+  const ready = Math.min(readiness.readyUnreadCount, total);
+  const percent = total ? Math.round((ready / total) * 100) : 100;
+  const activeWork =
+    readiness.pendingJobs +
+    readiness.runningJobs +
+    readiness.pendingTranslations +
+    readiness.processingTranslations +
+    readiness.pendingImageCaches;
+  return { total, ready, percent, activeWork };
+}
+
+export function readinessText(readiness: ReadinessStatus, fallback: string): string {
+  const progress = calculateReadinessProgress(readiness);
   if (readiness.isPreparing) {
-    const active = readiness.pendingJobs + readiness.runningJobs;
-    return `${readiness.readyUnreadCount.toLocaleString("fa-IR")} آماده خواندن · ${active.toLocaleString("fa-IR")} کار در پس‌زمینه`;
+    return `${progress.ready.toLocaleString("fa-IR")} از ${progress.total.toLocaleString("fa-IR")} آماده · ${progress.percent.toLocaleString("fa-IR")}٪ · ${progress.activeWork.toLocaleString("fa-IR")} کار پس‌زمینه`;
   }
-  if (readiness.readyUnreadCount)
-    return `${readiness.readyUnreadCount.toLocaleString("fa-IR")} مقاله آماده خواندن`;
+  if (progress.total)
+    return `${progress.ready.toLocaleString("fa-IR")} از ${progress.total.toLocaleString("fa-IR")} آماده · ${progress.percent.toLocaleString("fa-IR")}٪`;
+  if (progress.activeWork)
+    return `صف آماده‌سازی فعال · ${progress.activeWork.toLocaleString("fa-IR")} کار پس‌زمینه`;
   return fallback;
 }
 
