@@ -1,8 +1,20 @@
 import { z } from "zod";
 
-export const translationStatuses = ["pending", "processing", "completed", "failed", "skipped"] as const;
+export const translationStatuses = [
+  "pending",
+  "processing",
+  "completed",
+  "failed",
+  "skipped"
+] as const;
 export const jobStatuses = ["pending", "running", "completed", "failed"] as const;
-export const jobTypes = ["fetch_feed", "extract_article", "cache_images", "translate_article", "rebuild_search"] as const;
+export const jobTypes = [
+  "fetch_feed",
+  "extract_article",
+  "cache_images",
+  "translate_article",
+  "rebuild_search"
+] as const;
 export const articleViewModes = ["english", "persian", "split"] as const;
 export const themes = ["light", "dark", "sepia"] as const;
 export const translationProviders = ["metis", "ollama"] as const;
@@ -28,6 +40,10 @@ export const feedPatchSchema = z.object({
   refreshIntervalMinutes: z.number().int().min(5).max(10080).optional(),
   fetchFullContent: z.boolean().optional(),
   isActive: z.boolean().optional()
+});
+
+export const feedDeleteSchema = z.object({
+  confirmTitle: z.string().trim().min(1)
 });
 
 export const articlePatchSchema = z.object({
@@ -128,6 +144,7 @@ export const settingsPatchSchema = z.object({
 });
 
 export type FeedCreateInput = z.infer<typeof feedCreateSchema>;
+export type FeedDeleteInput = z.infer<typeof feedDeleteSchema>;
 export type ArticlePatchInput = z.infer<typeof articlePatchSchema>;
 export type ArticleQuery = z.infer<typeof articleQuerySchema>;
 export type RuleCreateInput = z.infer<typeof ruleCreateSchema>;

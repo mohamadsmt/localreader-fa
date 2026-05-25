@@ -22,6 +22,7 @@ import {
   Sparkles,
   Star,
   Sun,
+  Trash2,
   Upload,
   Zap
 } from "lucide-react";
@@ -179,6 +180,22 @@ export interface QueueProgress {
   ready: number;
   percent: number;
   activeWork: number;
+}
+
+type HighlightLanguage = "en" | "fa";
+
+export interface ReaderSelectionState {
+  articleId: string;
+  quote: string;
+  language: HighlightLanguage;
+  top: number;
+  left: number;
+}
+
+interface SelectionToolbarPositionSource {
+  scrollTop: number;
+  scrollLeft: number;
+  clientWidth: number;
 }
 
 const defaultSettings: ApiSettings = {
@@ -497,7 +514,10 @@ export function App(): JSX.Element {
               viewMode={viewMode}
               setViewMode={setViewMode}
               updateArticle={updateArticle}
-              reloadArticle={() => selectedId && loadArticle(selectedId)}
+              reloadArticle={() => {
+                if (!selectedId) return;
+                return loadArticle(selectedId);
+              }}
             />
           </div>
         ) : null}
@@ -507,6 +527,12 @@ export function App(): JSX.Element {
             feeds={feeds}
             folders={folders}
             reload={() => Promise.all([loadMeta(), loadArticles()])}
+            onFeedUnsubscribed={async (feedId) => {
+              const wasFiltered = feedFilter === feedId;
+              if (wasFiltered) setFeedFilter(null);
+              await Promise.all([loadMeta(), loadReadiness()]);
+              if (!wasFiltered) await loadArticles();
+            }}
           />
         ) : null}
         {page === "rules" ? <RulesPanel /> : null}
@@ -520,10 +546,7 @@ export function App(): JSX.Element {
   );
 }
 
-function ThemeQuickToggle(props: {
-  theme: ThemeName;
-  onToggle: () => void;
-}): JSX.Element {
+function ThemeQuickToggle(props: { theme: ThemeName; onToggle: () => void }): JSX.Element {
   const isDark = props.theme === "dark";
   const label = isDark ? "تم روشن" : "تم تاریک";
   const Icon = isDark ? Sun : Moon;
@@ -826,17 +849,30 @@ function ReaderPane(props: {
     id: string,
     patch: Partial<Pick<ArticleListItem, "isRead" | "isStarred" | "isArchived" | "isReadLater">>
   ) => Promise<void>;
-  reloadArticle: () => void;
+  reloadArticle: () => Promise<void> | void;
 }): JSX.Element {
   const [imagesAllowed, setImagesAllowed] = useState(false);
-  const [selectedQuote, setSelectedQuote] = useState("");
+  const [selectionToolbar, setSelectionToolbar] = useState<ReaderSelectionState | null>(null);
+  const [isHighlighting, setIsHighlighting] = useState(false);
   const scrollRef = useRef<HTMLElement>(null);
   const article = props.article;
 
   useEffect(() => {
     setImagesAllowed(false);
-    setSelectedQuote("");
   }, [article?.id]);
+
+  useEffect(() => {
+    setSelectionToolbar(null);
+    window.getSelection()?.removeAllRanges();
+  }, [article?.id, props.viewMode]);
+
+  useEffect(() => {
+    const clearOnEscape = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") setSelectionToolbar(null);
+    };
+    window.addEventListener("keydown", clearOnEscape);
+    return () => window.removeEventListener("keydown", clearOnEscape);
+  }, []);
 
   useEffect(() => {
     if (!article || article.isRead || props.settings.markReadDelaySeconds === 0) return;
@@ -867,18 +903,44 @@ function ReaderPane(props: {
     return { canShowPersian, englishHtml, persianHtml };
   }, [article, imagesAllowed, props.settings.loadRemoteImages]);
 
-  const createHighlight = async (): Promise<void> => {
-    if (!article || !selectedQuote.trim()) return;
-    await api<Highlight>("/api/highlights", {
-      method: "POST",
-      body: JSON.stringify({
-        articleId: article.id,
-        quote: selectedQuote.trim(),
-        language: props.viewMode === "english" ? "en" : "fa"
-      })
+  const captureSelection = useCallback((): void => {
+    const pane = scrollRef.current;
+    if (!article || !pane) return;
+    const schedule =
+      window.requestAnimationFrame ??
+      ((callback: FrameRequestCallback) => window.setTimeout(() => callback(Date.now()), 0));
+    schedule(() => {
+      setSelectionToolbar(buildReaderSelectionState(window.getSelection(), pane, article.id));
     });
-    setSelectedQuote("");
-    props.reloadArticle();
+  }, [article?.id]);
+
+  const createHighlight = async (): Promise<void> => {
+    if (!article || !selectionToolbar || selectionToolbar.articleId !== article.id) return;
+    const scrollTop = scrollRef.current?.scrollTop ?? null;
+    setIsHighlighting(true);
+    try {
+      await api<Highlight>("/api/highlights", {
+        method: "POST",
+        body: JSON.stringify({
+          articleId: article.id,
+          quote: selectionToolbar.quote,
+          language: selectionToolbar.language
+        })
+      });
+      setSelectionToolbar(null);
+      window.getSelection()?.removeAllRanges();
+      await props.reloadArticle();
+      if (scrollTop !== null) {
+        const schedule =
+          window.requestAnimationFrame ??
+          ((callback: FrameRequestCallback) => window.setTimeout(() => callback(Date.now()), 0));
+        schedule(() => {
+          if (scrollRef.current) scrollRef.current.scrollTop = scrollTop;
+        });
+      }
+    } finally {
+      setIsHighlighting(false);
+    }
   };
 
   const retryTranslation = async (): Promise<void> => {
@@ -887,7 +949,7 @@ function ReaderPane(props: {
       method: "POST",
       body: "{}"
     });
-    props.reloadArticle();
+    await props.reloadArticle();
   };
 
   if (!article) {
@@ -911,7 +973,14 @@ function ReaderPane(props: {
           "--reader-font-size": `${props.settings.fontSize}px`
         } as CSSProperties
       }
-      onMouseUp={() => setSelectedQuote(window.getSelection()?.toString() ?? "")}
+      onMouseUp={captureSelection}
+      onKeyUp={(event) => {
+        if (event.key === "Escape") {
+          setSelectionToolbar(null);
+          return;
+        }
+        captureSelection();
+      }}
       onScroll={(event) => {
         const el = event.currentTarget;
         const progress = el.scrollTop / Math.max(1, el.scrollHeight - el.clientHeight);
@@ -984,13 +1053,6 @@ function ReaderPane(props: {
           </button>
         ) : null}
 
-        {selectedQuote ? (
-          <button className="highlight-action" onClick={() => void createHighlight()}>
-            <Highlighter size={16} />
-            هایلایت انتخاب
-          </button>
-        ) : null}
-
         {content?.canShowPersian && (props.viewMode === "persian" || props.viewMode === "split") ? (
           <div
             className="article-prose article-prose-fa rtl-content"
@@ -1009,6 +1071,25 @@ function ReaderPane(props: {
             dir="ltr"
             dangerouslySetInnerHTML={{ __html: content?.englishHtml ?? "" }}
           />
+        ) : null}
+
+        {selectionToolbar ? (
+          <div
+            className="selection-toolbar"
+            role="toolbar"
+            aria-label="ابزار هایلایت متن انتخاب‌شده"
+            style={{ top: selectionToolbar.top, left: selectionToolbar.left }}
+            onMouseDown={(event) => event.preventDefault()}
+          >
+            <button
+              onClick={() => void createHighlight()}
+              disabled={isHighlighting}
+              aria-busy={isHighlighting}
+            >
+              <Highlighter size={15} />
+              {isHighlighting ? "در حال ذخیره" : "هایلایت"}
+            </button>
+          </div>
         ) : null}
 
         {article.highlights.length ? (
@@ -1051,10 +1132,15 @@ function FeedsPanel(props: {
   feeds: Feed[];
   folders: FolderRecord[];
   reload: () => Promise<unknown>;
+  onFeedUnsubscribed: (feedId: string) => Promise<void>;
 }): JSX.Element {
   const [url, setUrl] = useState("");
   const [folderName, setFolderName] = useState("");
   const [message, setMessage] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<Feed | null>(null);
+  const [confirmTitle, setConfirmTitle] = useState("");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const addFeed = async (): Promise<void> => {
     setMessage("در حال بررسی فید…");
@@ -1072,6 +1158,42 @@ function FeedsPanel(props: {
     });
     setFolderName("");
     await props.reload();
+  };
+
+  const openDeleteDialog = (feed: Feed): void => {
+    setDeleteTarget(feed);
+    setConfirmTitle("");
+    setDeleteError(null);
+  };
+
+  const closeDeleteDialog = (): void => {
+    if (isDeleting) return;
+    setDeleteTarget(null);
+    setConfirmTitle("");
+    setDeleteError(null);
+  };
+
+  const unsubscribeFeed = async (): Promise<void> => {
+    if (!deleteTarget || confirmTitle !== deleteTarget.title) return;
+    const feed = deleteTarget;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await api(`/api/feeds/${feed.id}`, {
+        method: "DELETE",
+        body: JSON.stringify({ confirmTitle })
+      });
+      setMessage(
+        `اشتراک «${feed.title}» حذف شد؛ ${(feed._count?.articles ?? 0).toLocaleString("fa-IR")} مقاله قبلی باقی ماند.`
+      );
+      setDeleteTarget(null);
+      setConfirmTitle("");
+      await props.onFeedUnsubscribed(feed.id);
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -1102,7 +1224,7 @@ function FeedsPanel(props: {
       {message ? <p className="inline-message">{message}</p> : null}
       <div className="table-list">
         {props.feeds.map((feed) => (
-          <div key={feed.id} className="table-row">
+          <div key={feed.id} className="table-row feed-row">
             <div>
               <strong>{feed.title}</strong>
               <small>{feed.feedUrl}</small>
@@ -1115,14 +1237,24 @@ function FeedsPanel(props: {
               ) : null}
             </div>
             <div>{feed._count?.articles ?? 0} مقاله</div>
-            <button
-              onClick={async () => {
-                await api(`/api/feeds/${feed.id}/refresh`, { method: "POST", body: "{}" });
-                setMessage("Refresh job ثبت شد.");
-              }}
-            >
-              <RefreshCw size={15} />
-            </button>
+            <div className="feed-row-actions">
+              <button
+                aria-label={`تازه‌سازی ${feed.title}`}
+                onClick={async () => {
+                  await api(`/api/feeds/${feed.id}/refresh`, { method: "POST", body: "{}" });
+                  setMessage("Refresh job ثبت شد.");
+                }}
+              >
+                <RefreshCw size={15} />
+              </button>
+              <button
+                className="danger-icon-button"
+                aria-label={`حذف فید ${feed.title}`}
+                onClick={() => openDeleteDialog(feed)}
+              >
+                <Trash2 size={15} />
+              </button>
+            </div>
           </div>
         ))}
       </div>
@@ -1148,6 +1280,66 @@ function FeedsPanel(props: {
           />
         </label>
       </div>
+      {deleteTarget ? (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeDeleteDialog();
+          }}
+        >
+          <div
+            className="confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="feed-delete-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="dialog-heading">
+              <Trash2 size={18} />
+              <h3 id="feed-delete-title">حذف فید</h3>
+            </div>
+            <p>
+              اشتراک «{deleteTarget.title}» حذف می‌شود و دریافت‌های بعدی متوقف خواهد شد. مقاله‌های
+              قبلی، ترجمه‌ها، یادداشت‌ها و هایلایت‌ها باقی می‌مانند.
+            </p>
+            <dl className="feed-delete-summary">
+              <div>
+                <dt>URL</dt>
+                <dd>{deleteTarget.feedUrl}</dd>
+              </div>
+              <div>
+                <dt>مقاله‌های ذخیره‌شده</dt>
+                <dd>{(deleteTarget._count?.articles ?? 0).toLocaleString("fa-IR")}</dd>
+              </div>
+            </dl>
+            <label className="danger-confirm">
+              <span>برای تایید، عنوان فید را دقیق وارد کنید:</span>
+              <input
+                autoFocus
+                value={confirmTitle}
+                onChange={(event) => setConfirmTitle(event.target.value)}
+                placeholder={deleteTarget.title}
+                disabled={isDeleting}
+              />
+            </label>
+            {deleteError ? <p className="dialog-error">{deleteError}</p> : null}
+            <div className="dialog-actions">
+              <button className="quiet-action" onClick={closeDeleteDialog} disabled={isDeleting}>
+                انصراف
+              </button>
+              <button
+                className="danger-action"
+                onClick={() => void unsubscribeFeed()}
+                disabled={confirmTitle !== deleteTarget.title || isDeleting}
+                aria-busy={isDeleting}
+              >
+                {isDeleting ? "در حال حذف" : "حذف اشتراک"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -1488,6 +1680,80 @@ export function readinessText(readiness: ReadinessStatus, fallback: string): str
   if (progress.activeWork)
     return `صف آماده‌سازی فعال · ${progress.activeWork.toLocaleString("fa-IR")} کار پس‌زمینه`;
   return fallback;
+}
+
+export function calculateSelectionToolbarPosition(
+  rangeRect: Pick<DOMRect, "left" | "right" | "top" | "width" | "height">,
+  paneRect: Pick<DOMRect, "left" | "top">,
+  pane: SelectionToolbarPositionSource,
+  toolbarWidth = 132
+): Pick<ReaderSelectionState, "top" | "left"> {
+  const rectWidth = rangeRect.width || Math.max(0, rangeRect.right - rangeRect.left);
+  const centerLeft = rangeRect.left - paneRect.left + pane.scrollLeft + rectWidth / 2;
+  const halfToolbar = toolbarWidth / 2;
+  const minLeft = halfToolbar + 8;
+  const maxLeft = Math.max(minLeft, pane.clientWidth - halfToolbar - 8);
+  return {
+    top: Math.max(48, rangeRect.top - paneRect.top + pane.scrollTop - 10),
+    left: Math.min(maxLeft, Math.max(minLeft, centerLeft))
+  };
+}
+
+export function detectSelectionLanguage(prose: Element): HighlightLanguage {
+  const dir = prose.getAttribute("dir");
+  if (prose.classList.contains("article-prose-fa") || dir === "rtl") return "fa";
+  return "en";
+}
+
+export function buildReaderSelectionState(
+  selection: Selection | null,
+  pane: HTMLElement,
+  articleId: string
+): ReaderSelectionState | null {
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+  const quote = selection.toString().trim();
+  if (!quote) return null;
+
+  const range = selection.getRangeAt(0);
+  const anchorProse = closestProse(selection.anchorNode ?? range.commonAncestorContainer);
+  const focusProse = closestProse(selection.focusNode ?? range.commonAncestorContainer);
+  if (!anchorProse || !focusProse || anchorProse !== focusProse || !pane.contains(anchorProse)) {
+    return null;
+  }
+
+  const rangeRect = usefulRangeRect(range);
+  if (!rangeRect) return null;
+  const paneRect = pane.getBoundingClientRect();
+  const position = calculateSelectionToolbarPosition(rangeRect, paneRect, {
+    scrollTop: pane.scrollTop,
+    scrollLeft: pane.scrollLeft,
+    clientWidth: pane.clientWidth
+  });
+  return {
+    articleId,
+    quote,
+    language: detectSelectionLanguage(anchorProse),
+    ...position
+  };
+}
+
+function closestProse(node: Node | null): Element | null {
+  const element = elementFromNode(node);
+  return element?.closest(".article-prose") ?? null;
+}
+
+function elementFromNode(node: Node | null): Element | null {
+  if (!node) return null;
+  if (node.nodeType === Node.ELEMENT_NODE) return node as Element;
+  return node.parentElement;
+}
+
+function usefulRangeRect(range: Range): DOMRect | null {
+  const rects = Array.from(range.getClientRects()).filter(
+    (rect) => rect.width > 0 && rect.height > 0
+  );
+  const rect = rects[0] ?? range.getBoundingClientRect();
+  return rect.width > 0 || rect.height > 0 ? rect : null;
 }
 
 function relativeTime(value: string | null): string {

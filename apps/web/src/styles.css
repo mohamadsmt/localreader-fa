@@ -321,7 +321,8 @@ button[aria-busy="true"] {
 .form-line input,
 .form-grid input,
 .settings-grid input,
-.settings-grid select {
+.settings-grid select,
+.confirm-dialog input {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -347,6 +348,9 @@ button[aria-busy="true"] {
 .translation-state button,
 .image-load-button,
 .highlight-action,
+.selection-toolbar button,
+.confirm-dialog button,
+.danger-action,
 .upload-button {
   display: inline-flex;
   align-items: center;
@@ -381,9 +385,22 @@ button[aria-busy="true"] {
   background: color-mix(in srgb, var(--text) 86%, var(--accent)) !important;
 }
 
+.danger-action,
+.danger-icon-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--line));
+  color: var(--danger-text);
+  background: color-mix(in srgb, var(--danger) 9%, var(--panel));
+}
+
+.danger-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 17%, var(--panel));
+}
+
 .quiet-action[aria-busy="true"],
 .refresh-button[aria-busy="true"],
-.readiness-banner button[aria-busy="true"] {
+.readiness-banner button[aria-busy="true"],
+.selection-toolbar button[aria-busy="true"],
+.danger-action[aria-busy="true"] {
   background: var(--panel-2);
 }
 
@@ -596,6 +613,7 @@ button[aria-busy="true"] {
 }
 
 .reader-pane {
+  position: relative;
   overflow: auto;
   padding: 28px;
   outline: none;
@@ -727,6 +745,26 @@ button[aria-busy="true"] {
   margin: 0 0 16px;
 }
 
+.selection-toolbar {
+  position: absolute;
+  z-index: 20;
+  transform: translate(-50%, -100%);
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 96%, var(--accent) 4%);
+  box-shadow: 0 10px 28px color-mix(in srgb, #000 18%, transparent);
+}
+
+.selection-toolbar button {
+  min-height: 34px;
+  padding: 7px 11px;
+  border-color: transparent;
+  background: var(--text);
+  color: var(--panel);
+  white-space: nowrap;
+}
+
 .split-divider {
   margin: 34px 0;
   border: 0;
@@ -846,6 +884,17 @@ button[aria-busy="true"] {
   border-bottom: 1px solid var(--line);
 }
 
+.feed-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.feed-row-actions button {
+  width: 38px;
+  padding: 0;
+}
+
 .table-row:last-child {
   border-bottom: 0;
 }
@@ -864,6 +913,92 @@ button[aria-busy="true"] {
 .table-row em {
   color: var(--danger-text);
   font-style: normal;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: color-mix(in srgb, #000 44%, transparent);
+}
+
+.confirm-dialog {
+  width: min(100%, 540px);
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 24px 60px color-mix(in srgb, #000 26%, transparent);
+}
+
+.dialog-heading,
+.dialog-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dialog-heading {
+  color: var(--danger-text);
+}
+
+.dialog-heading h3,
+.confirm-dialog p {
+  margin: 0;
+}
+
+.confirm-dialog p {
+  margin-top: 12px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+
+.feed-delete-summary {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.feed-delete-summary div {
+  display: grid;
+  gap: 3px;
+}
+
+.feed-delete-summary dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.feed-delete-summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.feed-delete-summary div:first-child dd {
+  direction: ltr;
+  text-align: left;
+}
+
+.danger-confirm {
+  display: grid;
+  gap: 8px;
+}
+
+.dialog-error {
+  color: var(--danger-text) !important;
+}
+
+.dialog-actions {
+  justify-content: flex-end;
+  margin-top: 18px;
+  flex-wrap: wrap;
 }
 
 .job-status {
@@ -965,5 +1100,19 @@ button[aria-busy="true"] {
   .form-grid,
   .settings-grid {
     grid-template-columns: 1fr;
+  }
+
+  .table-row {
+    grid-template-columns: 1fr;
+  }
+
+  .feed-row-actions,
+  .dialog-actions {
+    justify-content: flex-start;
+  }
+
+  .confirm-dialog {
+    max-height: calc(100vh - 36px);
+    overflow: auto;
   }
 }

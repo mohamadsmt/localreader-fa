@@ -43,7 +43,11 @@ export async function createFeedFromUrl(input: {
       description: selected.description,
       folderId: input.folderId ?? undefined,
       refreshIntervalMinutes: input.refreshIntervalMinutes ?? undefined,
-      fetchFullContent: input.fetchFullContent ?? undefined
+      fetchFullContent: input.fetchFullContent ?? undefined,
+      isActive: true,
+      nextCheckAt: new Date(),
+      lastError: null,
+      errorCount: 0
     }
   });
   await enqueueJob("fetch_feed", { feedId: feed.id, force: true });
@@ -56,6 +60,17 @@ export async function fetchFeed(
 ): Promise<{ created: number; updated: number }> {
   const feed = await prisma.feed.findUnique({ where: { id: feedId } });
   if (!feed) throw new Error("Feed not found");
+  if (!feed.isActive) {
+    await prisma.fetchLog.create({
+      data: {
+        feedId: feed.id,
+        level: "info",
+        message: "Inactive feed fetch skipped",
+        metadataJson: JSON.stringify({ skippedAt: new Date().toISOString() })
+      }
+    });
+    return { created: 0, updated: 0 };
+  }
   const headers: Record<string, string> = {};
   if (!force && feed.etag) headers["if-none-match"] = feed.etag;
   if (!force && feed.lastModified) headers["if-modified-since"] = feed.lastModified;

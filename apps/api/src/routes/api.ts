@@ -4,6 +4,7 @@ import {
   articlePatchSchema,
   articleQuerySchema,
   feedCreateSchema,
+  feedDeleteSchema,
   feedPatchSchema,
   highlightCreateSchema,
   noteCreateSchema,
@@ -48,7 +49,10 @@ export async function registerApiRoutes(app: FastifyInstance): Promise<void> {
   }));
 
   app.get("/api/folders", async () =>
-    prisma.folder.findMany({ include: { feeds: true }, orderBy: { name: "asc" } })
+    prisma.folder.findMany({
+      include: { feeds: { where: { isActive: true }, orderBy: { title: "asc" } } },
+      orderBy: { name: "asc" }
+    })
   );
 
   app.post("/api/folders", async (request) => {
@@ -63,6 +67,7 @@ export async function registerApiRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/api/feeds", async () =>
     prisma.feed.findMany({
+      where: { isActive: true },
       include: {
         folder: true,
         _count: { select: { articles: true } }
@@ -89,11 +94,68 @@ export async function registerApiRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.delete<{ Params: IdParams }>("/api/feeds/:id", async (request) => {
-    await prisma.feed.delete({ where: { id: request.params.id } });
-    return { ok: true };
+    const parsed = feedDeleteSchema.safeParse(request.body);
+    if (!parsed.success) {
+      const error = new Error("Validation failed") as Error & { statusCode: number };
+      error.statusCode = 400;
+      throw error;
+    }
+    const input = parsed.data;
+    const feed = await prisma.feed.findUnique({
+      where: { id: request.params.id },
+      include: { _count: { select: { articles: true } } }
+    });
+    if (!feed) {
+      const error = new Error("Feed not found") as Error & { statusCode: number };
+      error.statusCode = 404;
+      throw error;
+    }
+    if (input.confirmTitle !== feed.title) {
+      const error = new Error("Feed title confirmation does not match") as Error & {
+        statusCode: number;
+      };
+      error.statusCode = 400;
+      throw error;
+    }
+
+    await prisma.$transaction([
+      prisma.feed.update({
+        where: { id: feed.id },
+        data: {
+          isActive: false,
+          nextCheckAt: null,
+          lastError: null,
+          errorCount: 0
+        }
+      }),
+      prisma.job.deleteMany({
+        where: {
+          type: "fetch_feed",
+          status: "pending",
+          payloadJson: { contains: `"feedId":"${feed.id}"` }
+        }
+      })
+    ]);
+
+    return {
+      ok: true,
+      feedId: feed.id,
+      feedTitle: feed.title,
+      articlesPreserved: feed._count.articles,
+      subscriptionRemoved: true
+    };
   });
 
   app.post<{ Params: IdParams }>("/api/feeds/:id/refresh", async (request) => {
+    const feed = await prisma.feed.findUnique({
+      where: { id: request.params.id },
+      select: { isActive: true }
+    });
+    if (!feed?.isActive) {
+      const error = new Error("Feed is inactive") as Error & { statusCode: number };
+      error.statusCode = feed ? 409 : 404;
+      throw error;
+    }
     const jobId = await enqueueJob("fetch_feed", { feedId: request.params.id, force: true });
     return { ok: true, jobId };
   });
@@ -316,6 +378,7 @@ export async function registerApiRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/api/export/opml", async (_request, reply) => {
     const feeds = await prisma.feed.findMany({
+      where: { isActive: true },
       include: { folder: true },
       orderBy: { title: "asc" }
     });

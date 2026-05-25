@@ -1,6 +1,14 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { App, calculateReadinessProgress, readinessText, type ReadinessStatus } from "./App.js";
+import {
+  App,
+  buildReaderSelectionState,
+  calculateReadinessProgress,
+  calculateSelectionToolbarPosition,
+  detectSelectionLanguage,
+  readinessText,
+  type ReadinessStatus
+} from "./App.js";
 
 const article = {
   id: "a1",
@@ -134,6 +142,69 @@ describe("App reader", () => {
     ).toContain("۱۰٪");
   });
 
+  it("builds reader selection state only for text inside article prose", () => {
+    const pane = document.createElement("section");
+    Object.defineProperty(pane, "clientWidth", { configurable: true, value: 420 });
+    Object.defineProperty(pane, "scrollTop", { configurable: true, value: 20 });
+    Object.defineProperty(pane, "scrollLeft", { configurable: true, value: 0 });
+    pane.getBoundingClientRect = () => rect({ left: 10, top: 20, width: 420, height: 600 });
+    const proseFa = document.createElement("div");
+    proseFa.className = "article-prose article-prose-fa";
+    proseFa.dir = "rtl";
+    proseFa.textContent = "متن فارسی برای تست";
+    pane.append(proseFa);
+    document.body.append(pane);
+    const range = fakeRange(proseFa, rect({ left: 90, top: 120, width: 80, height: 20 }));
+
+    expect(
+      buildReaderSelectionState(
+        fakeSelection({ quote: "متن فارسی", range, node: proseFa }),
+        pane,
+        "a1"
+      )
+    ).toMatchObject({
+      articleId: "a1",
+      quote: "متن فارسی",
+      language: "fa"
+    });
+    expect(
+      buildReaderSelectionState(
+        fakeSelection({ quote: "", range, node: proseFa, isCollapsed: true }),
+        pane,
+        "a1"
+      )
+    ).toBeNull();
+
+    const outside = document.createElement("p");
+    outside.textContent = "outside";
+    document.body.append(outside);
+    expect(
+      buildReaderSelectionState(
+        fakeSelection({
+          quote: "outside",
+          range: fakeRange(outside, rect({ left: 0, top: 0 })),
+          node: outside
+        }),
+        pane,
+        "a1"
+      )
+    ).toBeNull();
+    expect(detectSelectionLanguage(proseFa)).toBe("fa");
+    const proseEn = document.createElement("div");
+    proseEn.className = "article-prose ltr-content";
+    proseEn.dir = "ltr";
+    expect(detectSelectionLanguage(proseEn)).toBe("en");
+    expect(
+      calculateSelectionToolbarPosition(
+        rect({ left: 0, top: 5, width: 10, height: 10 }),
+        rect({ left: 0, top: 0 }),
+        { scrollTop: 0, scrollLeft: 0, clientWidth: 120 }
+      )
+    ).toEqual({ top: 48, left: 74 });
+    pane.remove();
+    outside.remove();
+  });
+
   it("renders Persian by default and toggles to English", async () => {
     vi.stubGlobal(
       "fetch",
@@ -248,6 +319,131 @@ describe("App reader", () => {
     resolvePrepare(json({ readiness: readyReadiness }));
     await waitFor(() => expect(prepareButton).not.toBeDisabled());
   });
+
+  it("saves highlights from the floating toolbar using the captured quote", async () => {
+    const removeAllRanges = vi.fn();
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.startsWith("/api/highlights") && init?.method === "POST") {
+        return json({
+          id: "h1",
+          articleId: "a1",
+          quote: "متن فارسی",
+          language: "fa",
+          note: null,
+          createdAt: new Date().toISOString()
+        });
+      }
+      if (url.startsWith("/api/settings")) return json(baseSettings);
+      if (url.startsWith("/api/readiness")) return json(readyReadiness);
+      if (url.startsWith("/api/feeds")) return json([]);
+      if (url.startsWith("/api/folders")) return json([]);
+      if (url.startsWith("/api/tags")) return json([]);
+      if (url.startsWith("/api/articles/a1")) return json(article);
+      if (url.startsWith("/api/articles")) return json({ items: [article], total: 1 });
+      return json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    render(<App />);
+    await screen.findByText("عنوان فارسی");
+    await screen.findByText("متن فارسی");
+    const readerPane = document.querySelector<HTMLElement>(".reader-pane");
+    const prose = readerPane?.querySelector<HTMLElement>(".article-prose-fa") ?? null;
+    if (!prose || !readerPane) throw new Error("reader prose was not rendered");
+    Object.defineProperty(readerPane, "clientWidth", { configurable: true, value: 780 });
+    readerPane.getBoundingClientRect = () => rect({ left: 0, top: 0, width: 780, height: 700 });
+    const selection = fakeSelection({
+      quote: "متن فارسی",
+      range: fakeRange(prose, rect({ left: 180, top: 240, width: 120, height: 22 })),
+      node: prose,
+      removeAllRanges
+    });
+    vi.spyOn(window, "getSelection").mockReturnValue(selection);
+
+    fireEvent.mouseUp(readerPane);
+
+    const toolbarButton = await screen.findByRole("button", { name: "هایلایت" });
+    expect(screen.getByRole("toolbar", { name: "ابزار هایلایت متن انتخاب‌شده" })).toBeVisible();
+    vi.spyOn(window, "getSelection").mockReturnValue(
+      fakeSelection({
+        quote: "",
+        range: fakeRange(prose, rect({ left: 0, top: 0 })),
+        node: prose,
+        isCollapsed: true,
+        removeAllRanges
+      })
+    );
+    fireEvent.mouseDown(toolbarButton);
+    fireEvent.click(toolbarButton);
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/highlights",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ articleId: "a1", quote: "متن فارسی", language: "fa" })
+        })
+      )
+    );
+    expect(removeAllRanges).toHaveBeenCalled();
+  });
+
+  it("requires exact feed title before unsubscribing and shows busy state", async () => {
+    let deleted = false;
+    let resolveDelete: (response: Response) => void = () => {};
+    const feed = { ...article.feed, _count: { articles: 3 } };
+    const deletePromise = new Promise<Response>((resolve) => {
+      resolveDelete = (response) => {
+        deleted = true;
+        resolve(response);
+      };
+    });
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.startsWith("/api/feeds/f1") && init?.method === "DELETE") return deletePromise;
+      if (url.startsWith("/api/settings")) return json(baseSettings);
+      if (url.startsWith("/api/readiness")) return json(readyReadiness);
+      if (url.startsWith("/api/feeds")) return json(deleted ? [] : [feed]);
+      if (url.startsWith("/api/folders")) return json([]);
+      if (url.startsWith("/api/tags")) return json([]);
+      if (url.startsWith("/api/articles/a1")) return json(article);
+      if (url.startsWith("/api/articles")) return json({ items: [article], total: 1 });
+      return json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "فیدها" }));
+    expect(await screen.findByText("مدیریت فیدها")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "حذف فید Feed" }));
+
+    const confirmButton = await screen.findByRole("button", { name: "حذف اشتراک" });
+    expect(confirmButton).toBeDisabled();
+    fireEvent.change(screen.getByPlaceholderText("Feed"), { target: { value: "feed" } });
+    expect(confirmButton).toBeDisabled();
+    fireEvent.change(screen.getByPlaceholderText("Feed"), { target: { value: "Feed" } });
+    expect(confirmButton).not.toBeDisabled();
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => expect(confirmButton).toBeDisabled());
+    expect(confirmButton).toHaveAttribute("aria-busy", "true");
+    resolveDelete(json({ ok: true, subscriptionRemoved: true, articlesPreserved: 3 }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "حذف فید" })).not.toBeInTheDocument()
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/feeds/f1",
+      expect.objectContaining({
+        method: "DELETE",
+        body: JSON.stringify({ confirmTitle: "Feed" })
+      })
+    );
+  });
 });
 
 function json(value: unknown): Response {
@@ -257,4 +453,48 @@ function json(value: unknown): Response {
 function requestBodyText(body: BodyInit | null | undefined): string {
   if (typeof body === "string") return body;
   throw new Error("expected request body to be a string");
+}
+
+function rect(overrides: Partial<DOMRect> = {}): DOMRect {
+  const left = overrides.left ?? 0;
+  const top = overrides.top ?? 0;
+  const width = overrides.width ?? 20;
+  const height = overrides.height ?? 20;
+  return {
+    x: left,
+    y: top,
+    left,
+    top,
+    width,
+    height,
+    right: overrides.right ?? left + width,
+    bottom: overrides.bottom ?? top + height,
+    toJSON: () => ({})
+  };
+}
+
+function fakeRange(node: Node, rangeRect: DOMRect): Range {
+  return {
+    commonAncestorContainer: node,
+    getClientRects: () => [rangeRect] as unknown as DOMRectList,
+    getBoundingClientRect: () => rangeRect
+  } as Range;
+}
+
+function fakeSelection(input: {
+  quote: string;
+  range: Range;
+  node: Node;
+  isCollapsed?: boolean;
+  removeAllRanges?: () => void;
+}): Selection {
+  return {
+    anchorNode: input.node,
+    focusNode: input.node,
+    rangeCount: 1,
+    isCollapsed: input.isCollapsed ?? false,
+    toString: () => input.quote,
+    getRangeAt: () => input.range,
+    removeAllRanges: input.removeAllRanges ?? vi.fn()
+  } as unknown as Selection;
 }
