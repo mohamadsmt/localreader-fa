@@ -1,0 +1,192 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Folder {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  feeds     Feed[]
+}
+
+model Feed {
+  id                     String     @id @default(cuid())
+  folderId               String?
+  folder                 Folder?    @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  title                  String
+  siteUrl                String?
+  feedUrl                String     @unique
+  faviconUrl             String?
+  description            String?
+  refreshIntervalMinutes Int        @default(60)
+  fetchFullContent       Boolean    @default(true)
+  isActive               Boolean    @default(true)
+  lastCheckedAt          DateTime?
+  nextCheckAt            DateTime?
+  lastError              String?
+  errorCount             Int        @default(0)
+  etag                   String?
+  lastModified           String?
+  createdAt              DateTime   @default(now())
+  updatedAt              DateTime   @updatedAt
+  articles               Article[]
+  fetchLogs              FetchLog[]
+
+  @@index([folderId])
+  @@index([nextCheckAt])
+}
+
+model Article {
+  id                       String       @id @default(cuid())
+  feedId                   String
+  feed                     Feed         @relation(fields: [feedId], references: [id], onDelete: Cascade)
+  guid                     String?
+  url                      String?
+  canonicalUrl             String?
+  urlHash                  String
+  title                    String
+  originalTitle            String
+  author                   String?
+  publishedAt              DateTime?
+  fetchedAt                DateTime     @default(now())
+  updatedAt                DateTime     @updatedAt
+  originalHtml             String?
+  originalText             String
+  originalExcerpt          String?
+  originalImageUrl         String?
+  originalImageLocalUrl    String?
+  imageCacheStatus         String       @default("pending")
+  imageCacheError          String?
+  imageCachedAt            DateTime?
+  rawFeedItemJson          String?
+  translatedTitleFa        String?
+  translatedBodyFaMarkdown String?
+  translatedSummaryFa      String?
+  sourceLanguage           String?
+  targetLanguage           String       @default("fa")
+  translationStatus        String       @default("pending")
+  translationError         String?
+  translatedAt             DateTime?
+  translationModel         String?
+  translationProgressJson  String?
+  isRead                   Boolean      @default(false)
+  isStarred                Boolean      @default(false)
+  isArchived               Boolean      @default(false)
+  isReadLater              Boolean      @default(false)
+  readingProgress          Float        @default(0)
+  lastReadAt               DateTime?
+  tags                     ArticleTag[]
+  highlights               Highlight[]
+  notes                    Note[]
+
+  @@unique([feedId, urlHash])
+  @@index([feedId])
+  @@index([publishedAt])
+  @@index([translationStatus])
+  @@index([isRead, isStarred, isArchived, isReadLater])
+}
+
+model Tag {
+  id        String       @id @default(cuid())
+  name      String       @unique
+  color     String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  articles  ArticleTag[]
+}
+
+model ArticleTag {
+  articleId String
+  tagId     String
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([articleId, tagId])
+}
+
+model Highlight {
+  id        String   @id @default(cuid())
+  articleId String
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  quote     String
+  language  String
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  notes     Note[]
+
+  @@index([articleId])
+}
+
+model Note {
+  id          String     @id @default(cuid())
+  articleId   String
+  highlightId String?
+  article     Article    @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  highlight   Highlight? @relation(fields: [highlightId], references: [id], onDelete: SetNull)
+  body        String
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([articleId])
+}
+
+model SavedSearch {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  queryJson String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Rule {
+  id             String   @id @default(cuid())
+  name           String
+  isEnabled      Boolean  @default(true)
+  conditionsJson String
+  actionsJson    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Job {
+  id          String    @id @default(cuid())
+  type        String
+  status      String    @default("pending")
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(5)
+  runAfter    DateTime  @default(now())
+  payloadJson String
+  lastError   String?
+  lockedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
+  @@index([type, status, runAfter])
+}
+
+model Setting {
+  key       String   @id
+  valueJson String
+  updatedAt DateTime @updatedAt
+}
+
+model FetchLog {
+  id           String   @id @default(cuid())
+  feedId       String?
+  feed         Feed?    @relation(fields: [feedId], references: [id], onDelete: SetNull)
+  level        String
+  message      String
+  metadataJson String?
+  createdAt    DateTime @default(now())
+
+  @@index([feedId])
+  @@index([createdAt])
+}

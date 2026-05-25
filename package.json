@@ -1,0 +1,29 @@
+{
+  "name": "localreader-fa",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.33.3",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @localreader/shared build && pnpm --parallel --filter @localreader/api --filter @localreader/web dev",
+    "dev:api": "pnpm --filter @localreader/api dev",
+    "dev:web": "pnpm --filter @localreader/web dev",
+    "build": "pnpm --filter @localreader/shared build && pnpm --filter @localreader/api build && pnpm --filter @localreader/web build",
+    "start": "pnpm --filter @localreader/api start",
+    "test": "pnpm --filter @localreader/shared build && pnpm -r test",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "format": "prettier --write .",
+    "prisma:generate": "pnpm --filter @localreader/api prisma:generate",
+    "prisma:migrate": "pnpm --filter @localreader/api prisma:migrate",
+    "seed": "pnpm --filter @localreader/api seed"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "eslint": "^9.39.1",
+    "playwright-core": "^1.60.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.47.0"
+  }
+}
