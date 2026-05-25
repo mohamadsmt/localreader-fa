@@ -3,7 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { prisma } from "../db.js";
 import { buildServer } from "../server.js";
 import { discoverFeeds } from "../services/feed/discovery.js";
-import { createFeedFromUrl } from "../services/feed/ingest.js";
+import { createFeedFromUrl, INITIAL_FEED_IMPORT_LIMIT } from "../services/feed/ingest.js";
 
 vi.mock("../services/feed/discovery.js", () => ({
   discoverFeeds: vi.fn()
@@ -161,6 +161,12 @@ describe("feed unsubscribe API", () => {
     expect(restored.lastError).toBeNull();
     expect(restored.errorCount).toBe(0);
     expect(restored.nextCheckAt).toBeInstanceOf(Date);
-    expect(await prisma.job.count({ where: { type: "fetch_feed", status: "pending" } })).toBe(1);
+    const jobs = await prisma.job.findMany({ where: { type: "fetch_feed", status: "pending" } });
+    expect(jobs).toHaveLength(1);
+    expect(JSON.parse(jobs[0]?.payloadJson ?? "{}")).toMatchObject({
+      feedId: feed.id,
+      force: true,
+      itemLimit: INITIAL_FEED_IMPORT_LIMIT
+    });
   });
 });

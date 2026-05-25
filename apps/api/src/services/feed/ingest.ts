@@ -13,6 +13,8 @@ import { enqueueTranslationJob } from "../translation/queue.js";
 import { discoverFeeds } from "./discovery.js";
 import { parseFeedDocument, type NormalizedFeedItem } from "./parseFeed.js";
 
+export const INITIAL_FEED_IMPORT_LIMIT = 50;
+
 export async function createFeedFromUrl(input: {
   url: string;
   folderId?: string | null;
@@ -50,13 +52,18 @@ export async function createFeedFromUrl(input: {
       errorCount: 0
     }
   });
-  await enqueueJob("fetch_feed", { feedId: feed.id, force: true });
+  await enqueueJob("fetch_feed", {
+    feedId: feed.id,
+    force: true,
+    itemLimit: INITIAL_FEED_IMPORT_LIMIT
+  });
   return feed.id;
 }
 
 export async function fetchFeed(
   feedId: string,
-  force = false
+  force = false,
+  options: { itemLimit?: number } = {}
 ): Promise<{ created: number; updated: number }> {
   const feed = await prisma.feed.findUnique({ where: { id: feedId } });
   if (!feed) throw new Error("Feed not found");
@@ -107,7 +114,8 @@ export async function fetchFeed(
 
     let created = 0;
     let updated = 0;
-    for (const item of parsed.items) {
+    const items = selectLatestFeedItems(parsed.items, options.itemLimit);
+    for (const item of items) {
       const result = await upsertArticleFromFeedItem(feed.id, item, feed.fetchFullContent);
       if (result === "created") created += 1;
       else updated += 1;
@@ -117,7 +125,13 @@ export async function fetchFeed(
         feedId: feed.id,
         level: "info",
         message: "Feed fetched",
-        metadataJson: JSON.stringify({ created, updated })
+        metadataJson: JSON.stringify({
+          created,
+          updated,
+          available: parsed.items.length,
+          processed: items.length,
+          itemLimit: options.itemLimit ?? null
+        })
       }
     });
     return { created, updated };
@@ -176,6 +190,27 @@ export async function scheduleDueFeeds(): Promise<number> {
     });
   }
   return feeds.length;
+}
+
+export function selectLatestFeedItems(
+  items: NormalizedFeedItem[],
+  itemLimit?: number
+): NormalizedFeedItem[] {
+  const normalizedLimit =
+    typeof itemLimit === "number" && Number.isFinite(itemLimit) && itemLimit > 0
+      ? Math.floor(itemLimit)
+      : null;
+  if (normalizedLimit === null) return items;
+  const ordered = items
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => {
+      const leftTime = left.item.publishedAt?.getTime() ?? Number.NEGATIVE_INFINITY;
+      const rightTime = right.item.publishedAt?.getTime() ?? Number.NEGATIVE_INFINITY;
+      if (leftTime !== rightTime) return rightTime - leftTime;
+      return left.index - right.index;
+    })
+    .map(({ item }) => item);
+  return ordered.slice(0, normalizedLimit);
 }
 
 async function upsertArticleFromFeedItem(

@@ -381,6 +381,22 @@ export function App(): JSX.Element {
     [article]
   );
 
+  const openArticleFromHighlight = useCallback((articleId: string): void => {
+    setFilter("all");
+    setFeedFilter(null);
+    setTagFilter(null);
+    setQuery("");
+    setSelectedId(articleId);
+    setPage("reader");
+  }, []);
+
+  const refreshSelectedArticleHighlights = useCallback(
+    (articleId: string): void => {
+      if (article?.id === articleId) void loadArticle(articleId);
+    },
+    [article?.id, loadArticle]
+  );
+
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -536,7 +552,12 @@ export function App(): JSX.Element {
           />
         ) : null}
         {page === "rules" ? <RulesPanel /> : null}
-        {page === "highlights" ? <HighlightsPanel /> : null}
+        {page === "highlights" ? (
+          <HighlightsPanel
+            onOpenArticle={openArticleFromHighlight}
+            onHighlightDeleted={refreshSelectedArticleHighlights}
+          />
+        ) : null}
         {page === "jobs" ? <JobsPanel /> : null}
         {page === "settings" ? (
           <SettingsPanel settings={settings} updateSettings={updateSettings} reload={loadMeta} />
@@ -709,15 +730,14 @@ function ReadinessBanner(props: {
   isPreparingNow: boolean;
 }): JSX.Element {
   const r = props.readiness;
+  const progress = calculateReadinessProgress(r);
+  const hasBackgroundWork = r.isPreparing || progress.activeWork > 0;
+  const hasQueueIssue = Boolean(r.failedJobs || r.feedsWithErrors || r.failedTranslations);
   if (
-    !r.unreadCount &&
-    !r.isPreparing &&
-    !r.failedJobs &&
-    !r.feedsWithErrors &&
-    !r.failedTranslations
+    !hasBackgroundWork &&
+    !hasQueueIssue
   )
     return <></>;
-  const progress = calculateReadinessProgress(r);
   const parts = [
     r.pendingTranslations || r.processingTranslations
       ? `${(r.pendingTranslations + r.processingTranslations).toLocaleString("fa-IR")} ترجمه`
@@ -854,6 +874,7 @@ function ReaderPane(props: {
   const [imagesAllowed, setImagesAllowed] = useState(false);
   const [selectionToolbar, setSelectionToolbar] = useState<ReaderSelectionState | null>(null);
   const [isHighlighting, setIsHighlighting] = useState(false);
+  const [deletingHighlightId, setDeletingHighlightId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLElement>(null);
   const article = props.article;
 
@@ -950,6 +971,20 @@ function ReaderPane(props: {
       body: "{}"
     });
     await props.reloadArticle();
+  };
+
+  const deleteHighlight = async (highlight: Highlight): Promise<void> => {
+    if (!article) return;
+    setDeletingHighlightId(highlight.id);
+    try {
+      await api<{ ok: boolean }>(`/api/highlights/${highlight.id}`, {
+        method: "DELETE",
+        body: "{}"
+      });
+      await props.reloadArticle();
+    } finally {
+      setDeletingHighlightId(null);
+    }
   };
 
   if (!article) {
@@ -1096,9 +1131,22 @@ function ReaderPane(props: {
           <aside className="reader-notes">
             <h3>هایلایت‌ها</h3>
             {article.highlights.map((highlight) => (
-              <blockquote key={highlight.id} dir={highlight.language === "fa" ? "rtl" : "ltr"}>
-                {highlight.quote}
-              </blockquote>
+              <div className="highlight-card" key={highlight.id}>
+                <blockquote dir={highlight.language === "fa" ? "rtl" : "ltr"}>
+                  {highlight.quote}
+                </blockquote>
+                <div className="highlight-actions">
+                  <button
+                    className="danger-icon-button"
+                    onClick={() => void deleteHighlight(highlight)}
+                    disabled={deletingHighlightId === highlight.id}
+                    aria-busy={deletingHighlightId === highlight.id}
+                  >
+                    <Trash2 size={15} />
+                    حذف هایلایت
+                  </button>
+                </div>
+              </div>
             ))}
           </aside>
         ) : null}
@@ -1146,7 +1194,7 @@ function FeedsPanel(props: {
     setMessage("در حال بررسی فید…");
     await api<Feed>("/api/feeds", { method: "POST", body: JSON.stringify({ url }) });
     setUrl("");
-    setMessage("فید اضافه شد و Job دریافت مقاله‌ها ثبت شد.");
+    setMessage("فید اضافه شد و Job دریافت ۵۰ محتوای آخر ثبت شد.");
     await props.reload();
   };
 
@@ -1412,11 +1460,28 @@ function RulesPanel(): JSX.Element {
   );
 }
 
-function HighlightsPanel(): JSX.Element {
+function HighlightsPanel(props: {
+  onOpenArticle: (articleId: string) => void;
+  onHighlightDeleted: (articleId: string) => void;
+}): JSX.Element {
   const [highlights, setHighlights] = useState<Highlight[]>([]);
+  const [deletingHighlightId, setDeletingHighlightId] = useState<string | null>(null);
   useEffect(() => {
     void api<Highlight[]>("/api/highlights").then(setHighlights);
   }, []);
+  const deleteHighlight = async (highlight: Highlight): Promise<void> => {
+    setDeletingHighlightId(highlight.id);
+    try {
+      await api<{ ok: boolean }>(`/api/highlights/${highlight.id}`, {
+        method: "DELETE",
+        body: "{}"
+      });
+      setHighlights((items) => items.filter((item) => item.id !== highlight.id));
+      props.onHighlightDeleted(highlight.articleId);
+    } finally {
+      setDeletingHighlightId(null);
+    }
+  };
   return (
     <section className="panel-page">
       <div className="panel-heading">
@@ -1424,12 +1489,36 @@ function HighlightsPanel(): JSX.Element {
         <p>هایلایت‌ها برای متن اصلی و ترجمه جدا ذخیره می‌شوند.</p>
       </div>
       <div className="highlight-list">
-        {highlights.map((highlight) => (
-          <blockquote key={highlight.id} dir={highlight.language === "fa" ? "rtl" : "ltr"}>
-            {highlight.quote}
-            <footer>{highlight.article?.originalTitle}</footer>
-          </blockquote>
-        ))}
+        {highlights.map((highlight) => {
+          const articleTitle =
+            highlight.article?.originalTitle ?? highlight.article?.title ?? "مقاله";
+          return (
+            <article className="highlight-card" key={highlight.id}>
+              <blockquote dir={highlight.language === "fa" ? "rtl" : "ltr"}>
+                {highlight.quote}
+              </blockquote>
+              <footer className="highlight-source">
+                <span>{articleTitle}</span>
+                <button
+                  onClick={() => props.onOpenArticle(highlight.articleId)}
+                  aria-label={`باز کردن مقاله ${articleTitle}`}
+                >
+                  <FileText size={15} />
+                  باز کردن مقاله
+                </button>
+                <button
+                  className="danger-icon-button"
+                  onClick={() => void deleteHighlight(highlight)}
+                  disabled={deletingHighlightId === highlight.id}
+                  aria-busy={deletingHighlightId === highlight.id}
+                >
+                  <Trash2 size={15} />
+                  حذف هایلایت
+                </button>
+              </footer>
+            </article>
+          );
+        })}
       </div>
     </section>
   );

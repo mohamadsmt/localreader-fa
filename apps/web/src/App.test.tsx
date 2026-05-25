@@ -60,6 +60,16 @@ const article = {
   notes: []
 };
 
+const savedHighlight = {
+  id: "h1",
+  articleId: "a1",
+  quote: "Saved quote",
+  language: "en",
+  note: null,
+  createdAt: new Date().toISOString(),
+  article
+};
+
 const readyReadiness: ReadinessStatus = {
   isPreparing: false,
   readyUnreadCount: 1,
@@ -223,9 +233,7 @@ describe("App reader", () => {
     );
     render(<App />);
     expect(await screen.findByText("عنوان فارسی")).toBeInTheDocument();
-    expect(
-      await screen.findByRole("progressbar", { name: "پیشرفت آماده‌سازی صف" })
-    ).toHaveAttribute("aria-valuenow", "100");
+    expect(screen.queryByRole("progressbar", { name: "پیشرفت آماده‌سازی صف" })).not.toBeInTheDocument();
     fireEvent.click(await screen.findByTestId("language-toggle"));
     await waitFor(() => expect(screen.getAllByText("Original title").length).toBeGreaterThan(0));
   });
@@ -391,6 +399,96 @@ describe("App reader", () => {
       )
     );
     expect(removeAllRanges).toHaveBeenCalled();
+  });
+
+  it("deletes highlights from the reader notes", async () => {
+    let deleted = false;
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.startsWith("/api/highlights/h1") && init?.method === "DELETE") {
+        deleted = true;
+        return json({ ok: true });
+      }
+      if (url.startsWith("/api/settings")) return json(baseSettings);
+      if (url.startsWith("/api/readiness")) return json(readyReadiness);
+      if (url.startsWith("/api/feeds")) return json([]);
+      if (url.startsWith("/api/folders")) return json([]);
+      if (url.startsWith("/api/tags")) return json([]);
+      if (url.startsWith("/api/articles/a1"))
+        return json({ ...article, highlights: deleted ? [] : [savedHighlight] });
+      if (url.startsWith("/api/articles")) return json({ items: [article], total: 1 });
+      return json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+    expect(await screen.findByText("Saved quote")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "حذف هایلایت" }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/highlights/h1",
+        expect.objectContaining({ method: "DELETE" })
+      )
+    );
+    await waitFor(() => expect(screen.queryByText("Saved quote")).not.toBeInTheDocument());
+  });
+
+  it("opens the source article from the highlights panel", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.startsWith("/api/highlights")) return json([savedHighlight]);
+        if (url.startsWith("/api/settings")) return json(baseSettings);
+        if (url.startsWith("/api/readiness")) return json(readyReadiness);
+        if (url.startsWith("/api/feeds")) return json([]);
+        if (url.startsWith("/api/folders")) return json([]);
+        if (url.startsWith("/api/tags")) return json([]);
+        if (url.startsWith("/api/articles/a1")) return json(article);
+        if (url.startsWith("/api/articles")) return json({ items: [article], total: 1 });
+        return json({});
+      })
+    );
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "هایلایت‌ها" }));
+    expect(await screen.findByText("Saved quote")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "باز کردن مقاله Original title" }));
+    await waitFor(() => expect(screen.getAllByText("عنوان فارسی").length).toBeGreaterThan(0));
+    expect(screen.queryByText("هایلایت‌ها و یادداشت‌ها")).not.toBeInTheDocument();
+  });
+
+  it("deletes highlights from the highlights panel", async () => {
+    let deleted = false;
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.startsWith("/api/highlights/h1") && init?.method === "DELETE") {
+        deleted = true;
+        return json({ ok: true });
+      }
+      if (url.startsWith("/api/highlights")) return json(deleted ? [] : [savedHighlight]);
+      if (url.startsWith("/api/settings")) return json(baseSettings);
+      if (url.startsWith("/api/readiness")) return json(readyReadiness);
+      if (url.startsWith("/api/feeds")) return json([]);
+      if (url.startsWith("/api/folders")) return json([]);
+      if (url.startsWith("/api/tags")) return json([]);
+      if (url.startsWith("/api/articles/a1")) return json(article);
+      if (url.startsWith("/api/articles")) return json({ items: [article], total: 1 });
+      return json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "هایلایت‌ها" }));
+    expect(await screen.findByText("Saved quote")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "حذف هایلایت" }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/highlights/h1",
+        expect.objectContaining({ method: "DELETE" })
+      )
+    );
+    expect(screen.queryByText("Saved quote")).not.toBeInTheDocument();
   });
 
   it("requires exact feed title before unsubscribing and shows busy state", async () => {

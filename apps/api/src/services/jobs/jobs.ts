@@ -5,6 +5,7 @@ export interface JobPayload {
   feedId?: string;
   articleId?: string;
   force?: boolean;
+  itemLimit?: number;
 }
 
 export async function enqueueJob(

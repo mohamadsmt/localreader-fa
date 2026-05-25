@@ -4,7 +4,7 @@ LocalReader FA is a local-first bilingual RSS/Atom/JSON Feed reader for long-for
 
 ## Features
 
-- Add feeds by direct feed URL or website URL with RSS/Atom/JSON Feed discovery.
+- Add feeds by direct feed URL or website URL with RSS/Atom/JSON Feed discovery; new feeds queue the latest 50 available items for the first import.
 - Fetch and deduplicate articles using GUID, canonical URL, and normalized URL hashes.
 - Conditional feed fetches with `ETag` and `Last-Modified`.
 - Full-text extraction with Mozilla Readability and jsdom, with graceful feed-content fallback.

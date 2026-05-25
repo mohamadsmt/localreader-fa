@@ -348,6 +348,8 @@ button[aria-busy="true"] {
 .translation-state button,
 .image-load-button,
 .highlight-action,
+.highlight-actions button,
+.highlight-source button,
 .selection-toolbar button,
 .confirm-dialog button,
 .danger-action,
@@ -400,6 +402,8 @@ button[aria-busy="true"] {
 .refresh-button[aria-busy="true"],
 .readiness-banner button[aria-busy="true"],
 .selection-toolbar button[aria-busy="true"],
+.highlight-actions button[aria-busy="true"],
+.highlight-source button[aria-busy="true"],
 .danger-action[aria-busy="true"] {
   background: var(--panel-2);
 }
@@ -797,12 +801,39 @@ button[aria-busy="true"] {
   border-top: 1px solid var(--line);
 }
 
+.highlight-card {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
 .reader-notes blockquote,
 .highlight-list blockquote {
-  margin: 0 0 12px;
+  margin: 0;
   padding: 12px 14px;
   border-right: 3px solid var(--accent);
   background: var(--panel-2);
+}
+
+.highlight-actions,
+.highlight-source {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.highlight-source {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.highlight-source span {
+  margin-inline-end: auto;
+}
+
+.highlight-actions {
+  justify-content: flex-end;
 }
 
 .panel-page {

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "../db.js";
-import { nextFeedRetryDate } from "../services/feed/ingest.js";
+import { INITIAL_FEED_IMPORT_LIMIT, nextFeedRetryDate, selectLatestFeedItems } from "../services/feed/ingest.js";
 import { enqueueJob, failJob, retryDelayMs } from "../services/jobs/jobs.js";
 
 describe("job retry backoff", () => {
@@ -21,6 +21,29 @@ describe("job retry backoff", () => {
     expect(nextFeedRetryDate(1, base).toISOString()).toBe("2026-05-25T10:05:00.000Z");
     expect(nextFeedRetryDate(3, base).toISOString()).toBe("2026-05-25T10:30:00.000Z");
     expect(nextFeedRetryDate(99, base).toISOString()).toBe("2026-05-25T16:00:00.000Z");
+  });
+
+  it("selects the latest 50 feed items for initial imports", () => {
+    const items = Array.from({ length: 60 }, (_, index) => ({
+      guid: `item-${index}`,
+      url: `https://example.com/${index}`,
+      title: `Item ${index}`,
+      author: null,
+      publishedAt: new Date(Date.UTC(2026, 0, index + 1)),
+      html: null,
+      text: `Item ${index}`,
+      summary: null,
+      imageUrl: null,
+      categories: [],
+      raw: {}
+    })).reverse();
+
+    const selected = selectLatestFeedItems(items, INITIAL_FEED_IMPORT_LIMIT);
+
+    expect(selected).toHaveLength(50);
+    expect(selected[0]?.guid).toBe("item-59");
+    expect(selected.at(-1)?.guid).toBe("item-10");
+    expect(selectLatestFeedItems(items)).toBe(items);
   });
 
   it("keeps failed translation jobs moving until terminal failure", async () => {

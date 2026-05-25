@@ -33,7 +33,9 @@ export class WorkerLoop {
       if (!job) return;
       if (job.type === "fetch_feed") {
         if (!job.payload.feedId) throw new Error("fetch_feed job missing feedId");
-        await fetchFeed(job.payload.feedId, Boolean(job.payload.force));
+        await fetchFeed(job.payload.feedId, Boolean(job.payload.force), {
+          itemLimit: job.payload.itemLimit
+        });
       } else if (job.type === "extract_article") {
         if (!job.payload.articleId) throw new Error("extract_article job missing articleId");
         await extractArticle(job.payload.articleId);
