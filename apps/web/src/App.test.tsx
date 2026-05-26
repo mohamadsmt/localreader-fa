@@ -491,6 +491,124 @@ describe("App reader", () => {
     expect(screen.queryByText("Saved quote")).not.toBeInTheDocument();
   });
 
+  it("filters articles by folder and nested feed from the sidebar", async () => {
+    const folder = { id: "folder-1", name: "AI" };
+    const feed = { ...article.feed, title: "AI Feed", folderId: folder.id };
+    const folderArticle = { ...article, feedId: feed.id, feed };
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.startsWith("/api/settings")) return json(baseSettings);
+      if (url.startsWith("/api/readiness")) return json(readyReadiness);
+      if (url.startsWith("/api/feeds")) return json([feed]);
+      if (url.startsWith("/api/folders")) return json([folder]);
+      if (url.startsWith("/api/tags")) return json([]);
+      if (url.startsWith("/api/articles/a1")) return json(folderArticle);
+      if (url.startsWith("/api/articles")) return json({ items: [folderArticle], total: 1 });
+      return json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "پوشه AI" }));
+
+    await waitFor(() =>
+      expect(
+        articleRequestUrls(fetchMock).some((url) =>
+          hasParams(url, { folderId: folder.id, limit: "50", offset: "0" })
+        )
+      ).toBe(true)
+    );
+    expect(await screen.findByRole("button", { name: "فید AI Feed" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "فید AI Feed" }));
+
+    await waitFor(() =>
+      expect(
+        articleRequestUrls(fetchMock).some((url) =>
+          hasParams(url, { feedId: feed.id, limit: "50", offset: "0" })
+        )
+      ).toBe(true)
+    );
+  });
+
+  it("paginates article requests and resets to the first page when filters change", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.startsWith("/api/settings")) return json(baseSettings);
+      if (url.startsWith("/api/readiness")) return json(readyReadiness);
+      if (url.startsWith("/api/feeds")) return json([]);
+      if (url.startsWith("/api/folders")) return json([]);
+      if (url.startsWith("/api/tags")) return json([]);
+      if (url.startsWith("/api/articles/a1")) return json(article);
+      if (url.startsWith("/api/articles")) return json({ items: [article], total: 75 });
+      return json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "صفحه بعدی" }));
+
+    await waitFor(() =>
+      expect(
+        articleRequestUrls(fetchMock).some((url) =>
+          hasParams(url, { limit: "50", offset: "50" })
+        )
+      ).toBe(true)
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "خوانده‌نشده" }));
+
+    await waitFor(() =>
+      expect(
+        articleRequestUrls(fetchMock).some((url) =>
+          hasParams(url, { unread: "true", limit: "50", offset: "0" })
+        )
+      ).toBe(true)
+    );
+  });
+
+  it("moves a feed to a folder from the feed management page", async () => {
+    const folder = { id: "folder-1", name: "AI" };
+    let folderId: string | null = null;
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.startsWith("/api/feeds/f1") && init?.method === "PATCH") {
+        const patch = JSON.parse(requestBodyText(init.body)) as { folderId: string | null };
+        folderId = patch.folderId;
+        return json({ ...article.feed, folderId });
+      }
+      if (url.startsWith("/api/settings")) return json(baseSettings);
+      if (url.startsWith("/api/readiness")) return json(readyReadiness);
+      if (url.startsWith("/api/feeds"))
+        return json([{ ...article.feed, folderId, _count: { articles: 1 } }]);
+      if (url.startsWith("/api/folders")) return json([folder]);
+      if (url.startsWith("/api/tags")) return json([]);
+      if (url.startsWith("/api/articles/a1")) return json(article);
+      if (url.startsWith("/api/articles")) return json({ items: [article], total: 1 });
+      return json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "فیدها" }));
+    fireEvent.change(await screen.findByLabelText("پوشه Feed"), {
+      target: { value: folder.id }
+    });
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/feeds/f1",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ folderId: folder.id })
+        })
+      )
+    );
+  });
+
   it("requires exact feed title before unsubscribing and shows busy state", async () => {
     let deleted = false;
     let resolveDelete: (response: Response) => void = () => {};
@@ -546,6 +664,22 @@ describe("App reader", () => {
 
 function json(value: unknown): Response {
   return new Response(JSON.stringify(value), { headers: { "content-type": "application/json" } });
+}
+
+function articleRequestUrls(fetchMock: ReturnType<typeof vi.fn>): string[] {
+  return fetchMock.mock.calls
+    .map(([input]) => requestUrl(input as RequestInfo | URL))
+    .filter((url) => url.startsWith("/api/articles?"));
+}
+
+function requestUrl(input: RequestInfo | URL): string {
+  return typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+}
+
+function hasParams(url: string, expected: Record<string, string>): boolean {
+  const query = url.split("?")[1] ?? "";
+  const params = new URLSearchParams(query);
+  return Object.entries(expected).every(([key, value]) => params.get(key) === value);
 }
 
 function requestBodyText(body: BodyInit | null | undefined): string {

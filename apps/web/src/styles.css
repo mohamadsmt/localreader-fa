@@ -256,6 +256,43 @@ button[aria-busy="true"] {
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
+.folder-nav-group {
+  display: grid;
+  gap: 3px;
+}
+
+.folder-chevron {
+  transition: transform 0.18s ease;
+}
+
+.folder-chevron.expanded {
+  transform: rotate(180deg);
+}
+
+.folder-feed-list {
+  display: grid;
+  gap: 3px;
+  padding-inline-start: 18px;
+}
+
+.folder-feed-list small,
+.sidebar-section > small {
+  padding: 5px 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.folder-feed-list button.nested {
+  min-height: 32px;
+  padding-inline-start: 12px;
+  color: var(--muted);
+}
+
+.folder-feed-list button.nested.active,
+.folder-feed-list button.nested[aria-pressed="true"] {
+  color: var(--text);
+}
+
 .utility {
   margin-top: auto;
 }
@@ -322,6 +359,7 @@ button[aria-busy="true"] {
 .form-grid input,
 .settings-grid input,
 .settings-grid select,
+.feed-folder-select select,
 .confirm-dialog input {
   width: 100%;
   border: 1px solid var(--line);
@@ -347,6 +385,7 @@ button[aria-busy="true"] {
 .table-row button,
 .translation-state button,
 .image-load-button,
+.article-pagination button,
 .highlight-action,
 .highlight-actions button,
 .highlight-source button,
@@ -508,9 +547,17 @@ button[aria-busy="true"] {
 
 .article-list {
   min-width: 0;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   border-left: 1px solid var(--line);
   background: var(--panel);
+}
+
+.article-list-items {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
 }
 
 .article-list.empty,
@@ -591,6 +638,38 @@ button[aria-busy="true"] {
 .article-row-meta {
   color: var(--accent);
   font-size: 12px;
+}
+
+.article-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 92%, var(--panel-2));
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.article-pagination > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.article-pagination button {
+  min-height: 32px;
+  padding: 6px 9px;
+}
+
+.article-pagination button.active,
+.article-pagination button[aria-current="page"] {
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--line));
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  color: var(--accent);
 }
 
 .status-dot {
@@ -913,6 +992,21 @@ button[aria-busy="true"] {
   align-items: center;
   padding: 14px 16px;
   border-bottom: 1px solid var(--line);
+}
+
+.feed-row {
+  grid-template-columns: minmax(0, 1fr) auto minmax(150px, 210px) auto;
+}
+
+.feed-folder-select {
+  display: grid;
+  gap: 5px;
+  min-width: 150px;
+}
+
+.feed-folder-select span {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .feed-row-actions {

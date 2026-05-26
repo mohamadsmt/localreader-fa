@@ -4,6 +4,9 @@ import {
   Archive,
   BookOpen,
   Briefcase,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Check,
   Clock3,
   Download,
@@ -219,6 +222,8 @@ const defaultSettings: ApiSettings = {
   databasePath: ""
 };
 
+const ARTICLE_PAGE_SIZE = 50;
+
 export function App(): JSX.Element {
   const [page, setPage] = useState<Page>("reader");
   const [filter, setFilter] = useState<FilterKey>("all");
@@ -232,7 +237,11 @@ export function App(): JSX.Element {
   const [viewMode, setViewMode] = useState<ArticleViewMode>("persian");
   const [query, setQuery] = useState("");
   const [feedFilter, setFeedFilter] = useState<string | null>(null);
+  const [folderFilter, setFolderFilter] = useState<string | null>(null);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(() => new Set());
+  const [articlePage, setArticlePage] = useState(1);
+  const [articleTotal, setArticleTotal] = useState(0);
   const [status, setStatus] = useState("در حال بارگذاری…");
   const [readiness, setReadiness] = useState<ReadinessStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -264,13 +273,22 @@ export function App(): JSX.Element {
     if (filter === "failed") params.set("failedTranslation", "true");
     if (filter === "untranslated") params.set("untranslated", "true");
     if (feedFilter) params.set("feedId", feedFilter);
+    if (!feedFilter && folderFilter) params.set("folderId", folderFilter);
     if (tagFilter) params.set("tag", tagFilter);
     params.set("sort", "newest");
+    params.set("limit", String(ARTICLE_PAGE_SIZE));
+    params.set("offset", String((articlePage - 1) * ARTICLE_PAGE_SIZE));
     const result = await api<ArticleResponse>(`/api/articles?${params.toString()}`);
+    const maxPage = Math.max(1, Math.ceil(result.total / ARTICLE_PAGE_SIZE));
+    if (articlePage > maxPage) {
+      setArticlePage(maxPage);
+      return;
+    }
     setArticles(result.items);
+    setArticleTotal(result.total);
     setSelectedId((current) => current ?? result.items[0]?.id ?? null);
     setStatus(`${result.total.toLocaleString("fa-IR")} مقاله`);
-  }, [feedFilter, filter, query, tagFilter]);
+  }, [articlePage, feedFilter, filter, folderFilter, query, tagFilter]);
 
   const loadArticle = useCallback(async (id: string) => {
     const detail = await api<ArticleDetail>(`/api/articles/${id}`);
@@ -289,6 +307,66 @@ export function App(): JSX.Element {
     });
     setSettings(next);
     return next;
+  }, []);
+
+  const selectPrimaryFilter = useCallback((value: FilterKey): void => {
+    setFilter(value);
+    setFeedFilter(null);
+    setFolderFilter(null);
+    setTagFilter(null);
+    setSelectedId(null);
+    setArticlePage(1);
+    setPage("reader");
+  }, []);
+
+  const selectFolder = useCallback((folderId: string): void => {
+    setExpandedFolderIds((current) => {
+      const next = new Set(current);
+      next.add(folderId);
+      return next;
+    });
+    setFilter("all");
+    setQuery("");
+    setFeedFilter(null);
+    setFolderFilter(folderId);
+    setTagFilter(null);
+    setSelectedId(null);
+    setArticlePage(1);
+    setPage("reader");
+  }, []);
+
+  const selectFeed = useCallback((feed: Feed): void => {
+    const parentFolderId = feed.folderId;
+    if (parentFolderId) {
+      setExpandedFolderIds((current) => {
+        const next = new Set(current);
+        next.add(parentFolderId);
+        return next;
+      });
+    }
+    setFilter("all");
+    setQuery("");
+    setFeedFilter(feed.id);
+    setFolderFilter(null);
+    setTagFilter(null);
+    setSelectedId(null);
+    setArticlePage(1);
+    setPage("reader");
+  }, []);
+
+  const selectTag = useCallback((name: string): void => {
+    setFilter("all");
+    setFeedFilter(null);
+    setFolderFilter(null);
+    setTagFilter(name);
+    setSelectedId(null);
+    setArticlePage(1);
+    setPage("reader");
+  }, []);
+
+  const changeArticlePage = useCallback((nextPage: number): void => {
+    setSelectedId(null);
+    setArticlePage(nextPage);
   }, []);
 
   const refreshAll = useCallback(async () => {
@@ -384,8 +462,10 @@ export function App(): JSX.Element {
   const openArticleFromHighlight = useCallback((articleId: string): void => {
     setFilter("all");
     setFeedFilter(null);
+    setFolderFilter(null);
     setTagFilter(null);
     setQuery("");
+    setArticlePage(1);
     setSelectedId(articleId);
     setPage("reader");
   }, []);
@@ -449,19 +529,17 @@ export function App(): JSX.Element {
         page={page}
         setPage={setPage}
         filter={filter}
-        setFilter={(value) => {
-          setFilter(value);
-          setFeedFilter(null);
-          setTagFilter(null);
-          setPage("reader");
-        }}
+        setFilter={selectPrimaryFilter}
         feeds={feeds}
         folders={folders}
         tags={tags}
         feedFilter={feedFilter}
+        folderFilter={folderFilter}
         tagFilter={tagFilter}
-        setFeedFilter={setFeedFilter}
-        setTagFilter={setTagFilter}
+        expandedFolderIds={expandedFolderIds}
+        onFolderSelect={selectFolder}
+        onFeedSelect={selectFeed}
+        onTagSelect={selectTag}
         refreshAll={refreshAll}
         isRefreshing={isRefreshing}
       />
@@ -478,7 +556,12 @@ export function App(): JSX.Element {
               <input
                 ref={searchRef}
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setSelectedId(null);
+                  setArticlePage(1);
+                  setPage("reader");
+                }}
                 placeholder="جستجو در انگلیسی و فارسی"
                 aria-label="جستجو"
               />
@@ -523,6 +606,10 @@ export function App(): JSX.Element {
               setSelectedId={setSelectedId}
               isLoading={isLoading}
               viewMode={viewMode}
+              page={articlePage}
+              pageSize={ARTICLE_PAGE_SIZE}
+              total={articleTotal}
+              onPageChange={changeArticlePage}
             />
             <ReaderPane
               article={article}
@@ -545,7 +632,11 @@ export function App(): JSX.Element {
             reload={() => Promise.all([loadMeta(), loadArticles()])}
             onFeedUnsubscribed={async (feedId) => {
               const wasFiltered = feedFilter === feedId;
-              if (wasFiltered) setFeedFilter(null);
+              if (wasFiltered) {
+                setFeedFilter(null);
+                setSelectedId(null);
+                setArticlePage(1);
+              }
               await Promise.all([loadMeta(), loadReadiness()]);
               if (!wasFiltered) await loadArticles();
             }}
@@ -592,12 +683,26 @@ function Sidebar(props: {
   folders: FolderRecord[];
   tags: Tag[];
   feedFilter: string | null;
+  folderFilter: string | null;
   tagFilter: string | null;
-  setFeedFilter: (id: string | null) => void;
-  setTagFilter: (name: string | null) => void;
+  expandedFolderIds: Set<string>;
+  onFolderSelect: (id: string) => void;
+  onFeedSelect: (feed: Feed) => void;
+  onTagSelect: (name: string) => void;
   refreshAll: () => Promise<void>;
   isRefreshing: boolean;
 }): JSX.Element {
+  const feedsByFolder = useMemo(() => {
+    const grouped = new Map<string, Feed[]>();
+    for (const feed of props.feeds) {
+      if (!feed.folderId) continue;
+      const folderFeeds = grouped.get(feed.folderId) ?? [];
+      folderFeeds.push(feed);
+      grouped.set(feed.folderId, folderFeeds);
+    }
+    return grouped;
+  }, [props.feeds]);
+  const unfiledFeeds = useMemo(() => props.feeds.filter((feed) => !feed.folderId), [props.feeds]);
   const filters: Array<[FilterKey, string, JSX.Element]> = [
     ["all", "همه", <Inbox size={17} key="all" />],
     ["unread", "خوانده‌نشده", <BookOpen size={17} key="unread" />],
@@ -627,8 +732,22 @@ function Sidebar(props: {
         {filters.map(([key, label, icon]) => (
           <button
             key={key}
-            className={props.filter === key && props.page === "reader" ? "active" : ""}
-            aria-pressed={props.filter === key && props.page === "reader"}
+            className={
+              props.filter === key &&
+              props.page === "reader" &&
+              !props.feedFilter &&
+              !props.folderFilter &&
+              !props.tagFilter
+                ? "active"
+                : ""
+            }
+            aria-pressed={
+              props.filter === key &&
+              props.page === "reader" &&
+              !props.feedFilter &&
+              !props.folderFilter &&
+              !props.tagFilter
+            }
             onClick={() => props.setFilter(key)}
           >
             {icon}
@@ -638,30 +757,64 @@ function Sidebar(props: {
       </nav>
       <section className="sidebar-section">
         <h2>پوشه‌ها</h2>
-        {props.folders.map((folder) => (
-          <button key={folder.id} onClick={() => props.setPage("feeds")}>
-            <Folder size={15} />
-            {folder.name}
-          </button>
-        ))}
+        {props.folders.map((folder) => {
+          const folderFeeds = feedsByFolder.get(folder.id) ?? [];
+          const isExpanded = props.expandedFolderIds.has(folder.id);
+          return (
+            <div className="folder-nav-group" key={folder.id}>
+              <button
+                className={props.folderFilter === folder.id ? "active" : ""}
+                aria-pressed={props.folderFilter === folder.id}
+                aria-expanded={isExpanded}
+                aria-label={`پوشه ${folder.name}`}
+                onClick={() => props.onFolderSelect(folder.id)}
+              >
+                <ChevronDown
+                  className={isExpanded ? "folder-chevron expanded" : "folder-chevron"}
+                  size={14}
+                />
+                <Folder size={15} />
+                <span>{folder.name}</span>
+              </button>
+              {isExpanded ? (
+                <div className="folder-feed-list">
+                  {folderFeeds.length ? (
+                    folderFeeds.map((feed) => (
+                      <button
+                        key={feed.id}
+                        className={props.feedFilter === feed.id ? "active nested" : "nested"}
+                        aria-pressed={props.feedFilter === feed.id}
+                        aria-label={`فید ${feed.title}`}
+                        onClick={() => props.onFeedSelect(feed)}
+                      >
+                        <Globe2 size={14} />
+                        <span>{feed.title}</span>
+                      </button>
+                    ))
+                  ) : (
+                    <small>فیدی در این پوشه نیست</small>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
       </section>
       <section className="sidebar-section">
-        <h2>فیدها</h2>
-        {props.feeds.slice(0, 12).map((feed) => (
+        <h2>بدون پوشه</h2>
+        {unfiledFeeds.map((feed) => (
           <button
             key={feed.id}
             className={props.feedFilter === feed.id ? "active" : ""}
             aria-pressed={props.feedFilter === feed.id}
-            onClick={() => {
-              props.setFeedFilter(feed.id);
-              props.setTagFilter(null);
-              props.setPage("reader");
-            }}
+            aria-label={`فید ${feed.title}`}
+            onClick={() => props.onFeedSelect(feed)}
           >
             <Globe2 size={15} />
             <span>{feed.title}</span>
           </button>
         ))}
+        {!unfiledFeeds.length ? <small>همه فیدها داخل پوشه هستند</small> : null}
       </section>
       <section className="sidebar-section tags">
         <h2>تگ‌ها</h2>
@@ -670,11 +823,7 @@ function Sidebar(props: {
             key={tag.id}
             className={props.tagFilter === tag.name ? "active" : ""}
             aria-pressed={props.tagFilter === tag.name}
-            onClick={() => {
-              props.setTagFilter(tag.name);
-              props.setFeedFilter(null);
-              props.setPage("reader");
-            }}
+            onClick={() => props.onTagSelect(tag.name)}
           >
             #{tag.name}
           </button>
@@ -808,13 +957,19 @@ function ArticleList(props: {
   setSelectedId: (id: string) => void;
   isLoading: boolean;
   viewMode: ArticleViewMode;
+  page: number;
+  pageSize: number;
+  total: number;
+  onPageChange: (page: number) => void;
 }): JSX.Element {
   if (props.isLoading) {
     return (
       <section className="article-list">
-        {Array.from({ length: 8 }).map((_, index) => (
-          <div className="skeleton-row" key={index} />
-        ))}
+        <div className="article-list-items">
+          {Array.from({ length: 8 }).map((_, index) => (
+            <div className="skeleton-row" key={index} />
+          ))}
+        </div>
       </section>
     );
   }
@@ -829,35 +984,99 @@ function ArticleList(props: {
   }
   return (
     <section className="article-list" aria-label="فهرست مقاله‌ها">
-      {props.articles.map((article) => (
-        <button
-          key={article.id}
-          className={`article-row ${props.selectedId === article.id ? "selected" : ""} ${article.isRead ? "read" : ""}`}
-          aria-pressed={props.selectedId === article.id}
-          onClick={() => props.setSelectedId(article.id)}
-        >
-          <span className={`status-dot ${article.translationStatus}`} />
-          {article.originalImageLocalUrl ? (
-            <img
-              className="article-thumb"
-              src={article.originalImageLocalUrl}
-              alt=""
-              loading="lazy"
-            />
-          ) : null}
-          <strong>{displayTitle(article, props.viewMode)}</strong>
-          <small>
-            {article.feed.title} · {relativeTime(article.publishedAt ?? article.fetchedAt)}
-          </small>
-          <p>{displayExcerpt(article, props.viewMode)}</p>
-          <span className="article-row-meta">
-            {article.isStarred ? "★" : ""}
-            {translationStatusLabel(article.translationStatus)}
-          </span>
-        </button>
-      ))}
+      <div className="article-list-items">
+        {props.articles.map((article) => (
+          <button
+            key={article.id}
+            className={`article-row ${props.selectedId === article.id ? "selected" : ""} ${article.isRead ? "read" : ""}`}
+            aria-pressed={props.selectedId === article.id}
+            onClick={() => props.setSelectedId(article.id)}
+          >
+            <span className={`status-dot ${article.translationStatus}`} />
+            {article.originalImageLocalUrl ? (
+              <img
+                className="article-thumb"
+                src={article.originalImageLocalUrl}
+                alt=""
+                loading="lazy"
+              />
+            ) : null}
+            <strong>{displayTitle(article, props.viewMode)}</strong>
+            <small>
+              {article.feed.title} · {relativeTime(article.publishedAt ?? article.fetchedAt)}
+            </small>
+            <p>{displayExcerpt(article, props.viewMode)}</p>
+            <span className="article-row-meta">
+              {article.isStarred ? "★" : ""}
+              {translationStatusLabel(article.translationStatus)}
+            </span>
+          </button>
+        ))}
+      </div>
+      <ArticlePagination
+        page={props.page}
+        pageSize={props.pageSize}
+        total={props.total}
+        onPageChange={props.onPageChange}
+      />
     </section>
   );
+}
+
+function ArticlePagination(props: {
+  page: number;
+  pageSize: number;
+  total: number;
+  onPageChange: (page: number) => void;
+}): JSX.Element {
+  const totalPages = Math.max(1, Math.ceil(props.total / props.pageSize));
+  const from = props.total ? (props.page - 1) * props.pageSize + 1 : 0;
+  const to = Math.min(props.page * props.pageSize, props.total);
+  const pages = visiblePageNumbers(props.page, totalPages);
+  return (
+    <nav className="article-pagination" aria-label="صفحه‌بندی مقاله‌ها">
+      <span>
+        صفحه {props.page.toLocaleString("fa-IR")} از {totalPages.toLocaleString("fa-IR")} ·{" "}
+        {from.toLocaleString("fa-IR")} تا {to.toLocaleString("fa-IR")} از{" "}
+        {props.total.toLocaleString("fa-IR")}
+      </span>
+      <div>
+        <button
+          onClick={() => props.onPageChange(props.page - 1)}
+          disabled={props.page <= 1}
+          aria-label="صفحه قبلی"
+        >
+          <ChevronRight size={15} />
+          قبلی
+        </button>
+        {pages.map((page) => (
+          <button
+            key={page}
+            className={page === props.page ? "active" : ""}
+            aria-current={page === props.page ? "page" : undefined}
+            onClick={() => props.onPageChange(page)}
+          >
+            {page.toLocaleString("fa-IR")}
+          </button>
+        ))}
+        <button
+          onClick={() => props.onPageChange(props.page + 1)}
+          disabled={props.page >= totalPages}
+          aria-label="صفحه بعدی"
+        >
+          بعدی
+          <ChevronLeft size={15} />
+        </button>
+      </div>
+    </nav>
+  );
+}
+
+function visiblePageNumbers(page: number, totalPages: number): number[] {
+  const pages = new Set<number>([1, totalPages, page - 1, page, page + 1]);
+  return Array.from(pages)
+    .filter((value) => value >= 1 && value <= totalPages)
+    .sort((left, right) => left - right);
 }
 
 function ReaderPane(props: {
@@ -1189,6 +1408,7 @@ function FeedsPanel(props: {
   const [confirmTitle, setConfirmTitle] = useState("");
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [movingFeedId, setMovingFeedId] = useState<string | null>(null);
 
   const addFeed = async (): Promise<void> => {
     setMessage("در حال بررسی فید…");
@@ -1206,6 +1426,26 @@ function FeedsPanel(props: {
     });
     setFolderName("");
     await props.reload();
+  };
+
+  const moveFeedToFolder = async (feed: Feed, folderId: string): Promise<void> => {
+    const nextFolderId = folderId || null;
+    if ((feed.folderId ?? null) === nextFolderId) return;
+    setMovingFeedId(feed.id);
+    try {
+      await api<Feed>(`/api/feeds/${feed.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ folderId: nextFolderId })
+      });
+      const folderName =
+        props.folders.find((folder) => folder.id === nextFolderId)?.name ?? "بدون پوشه";
+      setMessage(`فید «${feed.title}» به «${folderName}» منتقل شد.`);
+      await props.reload();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setMovingFeedId(null);
+    }
   };
 
   const openDeleteDialog = (feed: Feed): void => {
@@ -1285,6 +1525,22 @@ function FeedsPanel(props: {
               ) : null}
             </div>
             <div>{feed._count?.articles ?? 0} مقاله</div>
+            <label className="feed-folder-select">
+              <span>پوشه</span>
+              <select
+                value={feed.folderId ?? ""}
+                onChange={(event) => void moveFeedToFolder(feed, event.target.value)}
+                disabled={movingFeedId === feed.id}
+                aria-label={`پوشه ${feed.title}`}
+              >
+                <option value="">بدون پوشه</option>
+                {props.folders.map((folder) => (
+                  <option value={folder.id} key={folder.id}>
+                    {folder.name}
+                  </option>
+                ))}
+              </select>
+            </label>
             <div className="feed-row-actions">
               <button
                 aria-label={`تازه‌سازی ${feed.title}`}
