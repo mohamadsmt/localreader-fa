@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, Dispatch, JSX, SetStateAction } from "react";
 import {
+  AlertCircle,
   Archive,
   BookOpen,
   Briefcase,
@@ -10,6 +11,7 @@ import {
   Check,
   Clock3,
   Download,
+  FileDown,
   FileText,
   Folder,
   Globe2,
@@ -37,7 +39,7 @@ import type {
   TranslationProvider
 } from "@localreader/shared";
 import { nextLanguageMode } from "@localreader/shared";
-import { api, downloadUrl } from "./lib/api.js";
+import { api, downloadBlob, downloadUrl } from "./lib/api.js";
 import { renderHtml, renderMarkdown } from "./lib/rendering.js";
 
 type Page = "reader" | "feeds" | "rules" | "search" | "highlights" | "jobs" | "settings";
@@ -242,12 +244,14 @@ export function App(): JSX.Element {
   const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(() => new Set());
   const [articlePage, setArticlePage] = useState(1);
   const [articleTotal, setArticleTotal] = useState(0);
+  const [selectedArticleIds, setSelectedArticleIds] = useState<Set<string>>(() => new Set());
   const [status, setStatus] = useState("در حال بارگذاری…");
   const [readiness, setReadiness] = useState<ReadinessStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isPreparingNow, setIsPreparingNow] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const loadMeta = useCallback(async () => {
@@ -309,15 +313,20 @@ export function App(): JSX.Element {
     return next;
   }, []);
 
+  const clearArticleSelection = useCallback((): void => {
+    setSelectedArticleIds(new Set());
+  }, []);
+
   const selectPrimaryFilter = useCallback((value: FilterKey): void => {
     setFilter(value);
     setFeedFilter(null);
     setFolderFilter(null);
     setTagFilter(null);
     setSelectedId(null);
+    clearArticleSelection();
     setArticlePage(1);
     setPage("reader");
-  }, []);
+  }, [clearArticleSelection]);
 
   const selectFolder = useCallback((folderId: string): void => {
     setExpandedFolderIds((current) => {
@@ -331,9 +340,10 @@ export function App(): JSX.Element {
     setFolderFilter(folderId);
     setTagFilter(null);
     setSelectedId(null);
+    clearArticleSelection();
     setArticlePage(1);
     setPage("reader");
-  }, []);
+  }, [clearArticleSelection]);
 
   const selectFeed = useCallback((feed: Feed): void => {
     const parentFolderId = feed.folderId;
@@ -350,9 +360,10 @@ export function App(): JSX.Element {
     setFolderFilter(null);
     setTagFilter(null);
     setSelectedId(null);
+    clearArticleSelection();
     setArticlePage(1);
     setPage("reader");
-  }, []);
+  }, [clearArticleSelection]);
 
   const selectTag = useCallback((name: string): void => {
     setFilter("all");
@@ -360,14 +371,57 @@ export function App(): JSX.Element {
     setFolderFilter(null);
     setTagFilter(name);
     setSelectedId(null);
+    clearArticleSelection();
     setArticlePage(1);
     setPage("reader");
-  }, []);
+  }, [clearArticleSelection]);
 
   const changeArticlePage = useCallback((nextPage: number): void => {
     setSelectedId(null);
+    clearArticleSelection();
     setArticlePage(nextPage);
+  }, [clearArticleSelection]);
+
+  const toggleArticleSelection = useCallback((id: string, checked: boolean): void => {
+    setSelectedArticleIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
   }, []);
+
+  const selectPageArticles = useCallback((): void => {
+    setSelectedArticleIds(new Set(articles.map((item) => item.id)));
+  }, [articles]);
+
+  const selectedArticleIdsInPageOrder = useMemo(
+    () => articles.filter((item) => selectedArticleIds.has(item.id)).map((item) => item.id),
+    [articles, selectedArticleIds]
+  );
+
+  const exportSelectedArticlesPdf = useCallback(async (): Promise<void> => {
+    if (!selectedArticleIdsInPageOrder.length) return;
+    setIsExportingPdf(true);
+    setError(null);
+    try {
+      await downloadBlob(
+        "/api/export/articles/pdf",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            articleIds: selectedArticleIdsInPageOrder,
+            viewMode
+          })
+        },
+        "localreader-fa-articles.pdf"
+      );
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsExportingPdf(false);
+    }
+  }, [selectedArticleIdsInPageOrder, viewMode]);
 
   const refreshAll = useCallback(async () => {
     setIsRefreshing(true);
@@ -466,9 +520,19 @@ export function App(): JSX.Element {
     setTagFilter(null);
     setQuery("");
     setArticlePage(1);
+    clearArticleSelection();
     setSelectedId(articleId);
     setPage("reader");
-  }, []);
+  }, [clearArticleSelection]);
+
+  useEffect(() => {
+    setSelectedArticleIds((current) => {
+      if (!current.size) return current;
+      const visibleIds = new Set(articles.map((item) => item.id));
+      const next = new Set([...current].filter((id) => visibleIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [articles]);
 
   const refreshSelectedArticleHighlights = useCallback(
     (articleId: string): void => {
@@ -559,6 +623,7 @@ export function App(): JSX.Element {
                 onChange={(event) => {
                   setQuery(event.target.value);
                   setSelectedId(null);
+                  clearArticleSelection();
                   setArticlePage(1);
                   setPage("reader");
                 }}
@@ -586,17 +651,14 @@ export function App(): JSX.Element {
           </div>
         </header>
 
-        {error ? <div className="error-state">{error}</div> : null}
-        {readiness ? (
-          <ReadinessBanner
-            readiness={readiness}
-            onPrepare={prepareNow}
-            isPreparingNow={isPreparingNow}
-          />
-        ) : null}
-        {failedFeeds.length ? (
-          <FeedIssueBanner feeds={failedFeeds} onOpenFeeds={() => setPage("feeds")} />
-        ) : null}
+        <SystemStatusStrip
+          error={error}
+          readiness={readiness}
+          failedFeeds={failedFeeds}
+          onPrepare={prepareNow}
+          isPreparingNow={isPreparingNow}
+          onOpenFeeds={() => setPage("feeds")}
+        />
 
         {page === "reader" || page === "search" ? (
           <div className="reader-layout">
@@ -610,6 +672,12 @@ export function App(): JSX.Element {
               pageSize={ARTICLE_PAGE_SIZE}
               total={articleTotal}
               onPageChange={changeArticlePage}
+              selectedArticleIds={selectedArticleIds}
+              onToggleArticleSelection={toggleArticleSelection}
+              onSelectPageArticles={selectPageArticles}
+              onClearSelection={clearArticleSelection}
+              onExportPdf={exportSelectedArticlesPdf}
+              isExportingPdf={isExportingPdf}
             />
             <ReaderPane
               article={article}
@@ -855,14 +923,54 @@ function Sidebar(props: {
   );
 }
 
-function FeedIssueBanner(props: { feeds: Feed[]; onOpenFeeds: () => void }): JSX.Element {
+function SystemStatusStrip(props: {
+  error: string | null;
+  readiness: ReadinessStatus | null;
+  failedFeeds: Feed[];
+  onPrepare: () => Promise<void>;
+  isPreparingNow: boolean;
+  onOpenFeeds: () => void;
+}): JSX.Element {
+  const showReadiness = props.readiness ? shouldShowReadinessStatus(props.readiness) : false;
+  if (!props.error && !showReadiness && !props.failedFeeds.length) return <></>;
+  return (
+    <section className="system-status-strip" aria-label="وضعیت سیستم">
+      {props.error ? <ErrorStatusItem message={props.error} /> : null}
+      {props.readiness && showReadiness ? (
+        <ReadinessStatusItem
+          readiness={props.readiness}
+          onPrepare={props.onPrepare}
+          isPreparingNow={props.isPreparingNow}
+        />
+      ) : null}
+      {props.failedFeeds.length ? (
+        <FeedIssueStatusItem feeds={props.failedFeeds} onOpenFeeds={props.onOpenFeeds} />
+      ) : null}
+    </section>
+  );
+}
+
+function ErrorStatusItem(props: { message: string }): JSX.Element {
+  return (
+    <div className="status-item status-error" role="alert">
+      <AlertCircle size={16} />
+      <div className="status-copy">
+        <strong>خطای برنامه</strong>
+        <span title={props.message}>{props.message}</span>
+      </div>
+    </div>
+  );
+}
+
+function FeedIssueStatusItem(props: { feeds: Feed[]; onOpenFeeds: () => void }): JSX.Element {
   const first = props.feeds[0];
   return (
-    <div className="feed-alert" role="status">
-      <div>
+    <div className="status-item status-error" role="status">
+      <AlertCircle size={16} />
+      <div className="status-copy">
         <strong>{props.feeds.length.toLocaleString("fa-IR")} فید خطای دریافت دارد</strong>
         {first ? (
-          <span>
+          <span title={`${first.title}: ${first.lastError ?? ""}`}>
             {first.title}: {first.lastError}
             {first.nextCheckAt ? ` · تلاش بعدی ${absoluteTime(first.nextCheckAt)}` : ""}
           </span>
@@ -873,20 +981,13 @@ function FeedIssueBanner(props: { feeds: Feed[]; onOpenFeeds: () => void }): JSX
   );
 }
 
-function ReadinessBanner(props: {
+function ReadinessStatusItem(props: {
   readiness: ReadinessStatus;
   onPrepare: () => Promise<void>;
   isPreparingNow: boolean;
 }): JSX.Element {
   const r = props.readiness;
   const progress = calculateReadinessProgress(r);
-  const hasBackgroundWork = r.isPreparing || progress.activeWork > 0;
-  const hasQueueIssue = Boolean(r.failedJobs || r.feedsWithErrors || r.failedTranslations);
-  if (
-    !hasBackgroundWork &&
-    !hasQueueIssue
-  )
-    return <></>;
   const parts = [
     r.pendingTranslations || r.processingTranslations
       ? `${(r.pendingTranslations + r.processingTranslations).toLocaleString("fa-IR")} ترجمه`
@@ -908,22 +1009,24 @@ function ReadinessBanner(props: {
         : "بخشی از صف آماده است";
   const tone =
     r.failedJobs || r.failedTranslations || r.feedsWithErrors
-      ? "attention"
+      ? "status-attention"
       : r.isPreparing || progress.activeWork
-        ? "busy"
-        : "complete";
+        ? "status-busy"
+        : "status-complete";
   return (
-    <div className={`readiness-banner ${tone}`} role="status">
-      <div className="readiness-copy">
-        <div className="readiness-heading">
+    <div className={`status-item ${tone}`} role="status">
+      <RefreshCw className={r.isPreparing || progress.activeWork ? "spin" : ""} size={16} />
+      <div className="status-copy readiness-status-copy">
+        <div className="status-heading">
           <strong>{title}</strong>
           <b>{progress.percent.toLocaleString("fa-IR")}٪</b>
         </div>
-        <span>
+        <span title={parts.length ? parts.join(" · ") : "صف فعالی وجود ندارد"}>
           {progress.ready.toLocaleString("fa-IR")} از {progress.total.toLocaleString("fa-IR")} آماده
           {progress.activeWork
             ? ` · ${progress.activeWork.toLocaleString("fa-IR")} کار پس‌زمینه`
             : ""}
+          {parts.length ? ` · ${parts.join(" · ")}` : ""}
         </span>
         <div
           className="queue-progress"
@@ -934,9 +1037,6 @@ function ReadinessBanner(props: {
           aria-valuenow={progress.percent}
         >
           <span style={{ width: `${progress.percent}%` }} />
-        </div>
-        <div className="queue-breakdown">
-          {parts.length ? parts.join(" · ") : "صف فعالی وجود ندارد"}
         </div>
       </div>
       <button
@@ -951,6 +1051,15 @@ function ReadinessBanner(props: {
   );
 }
 
+function shouldShowReadinessStatus(readiness: ReadinessStatus): boolean {
+  const progress = calculateReadinessProgress(readiness);
+  return (
+    readiness.isPreparing ||
+    progress.activeWork > 0 ||
+    Boolean(readiness.failedJobs || readiness.feedsWithErrors || readiness.failedTranslations)
+  );
+}
+
 function ArticleList(props: {
   articles: ArticleListItem[];
   selectedId: string | null;
@@ -961,6 +1070,12 @@ function ArticleList(props: {
   pageSize: number;
   total: number;
   onPageChange: (page: number) => void;
+  selectedArticleIds: Set<string>;
+  onToggleArticleSelection: (id: string, checked: boolean) => void;
+  onSelectPageArticles: () => void;
+  onClearSelection: () => void;
+  onExportPdf: () => Promise<void>;
+  isExportingPdf: boolean;
 }): JSX.Element {
   if (props.isLoading) {
     return (
@@ -982,35 +1097,74 @@ function ArticleList(props: {
       </section>
     );
   }
+  const selectedCount = props.articles.filter((article) =>
+    props.selectedArticleIds.has(article.id)
+  ).length;
+  const allPageSelected = selectedCount === props.articles.length;
   return (
     <section className="article-list" aria-label="فهرست مقاله‌ها">
+      <div className="article-selection-bar">
+        <span>{selectedCount.toLocaleString("fa-IR")} مقاله انتخاب شده</span>
+        <div>
+          <button onClick={props.onSelectPageArticles} disabled={allPageSelected}>
+            <Check size={15} />
+            انتخاب همه صفحه
+          </button>
+          <button onClick={props.onClearSelection} disabled={!selectedCount}>
+            لغو انتخاب
+          </button>
+          <button
+            className="pdf-export-button"
+            onClick={() => void props.onExportPdf()}
+            disabled={!selectedCount || props.isExportingPdf}
+            aria-busy={props.isExportingPdf}
+          >
+            {props.isExportingPdf ? <Loader2 className="spin" size={15} /> : <FileDown size={15} />}
+            {props.isExportingPdf ? "در حال ساخت PDF" : "خروجی PDF"}
+          </button>
+        </div>
+      </div>
       <div className="article-list-items">
         {props.articles.map((article) => (
-          <button
+          <div
             key={article.id}
-            className={`article-row ${props.selectedId === article.id ? "selected" : ""} ${article.isRead ? "read" : ""}`}
-            aria-pressed={props.selectedId === article.id}
-            onClick={() => props.setSelectedId(article.id)}
+            className={`article-row ${props.selectedId === article.id ? "selected" : ""} ${props.selectedArticleIds.has(article.id) ? "checked" : ""} ${article.isRead ? "read" : ""}`}
           >
-            <span className={`status-dot ${article.translationStatus}`} />
-            {article.originalImageLocalUrl ? (
-              <img
-                className="article-thumb"
-                src={article.originalImageLocalUrl}
-                alt=""
-                loading="lazy"
+            <label className="article-select" onClick={(event) => event.stopPropagation()}>
+              <input
+                type="checkbox"
+                checked={props.selectedArticleIds.has(article.id)}
+                onChange={(event) =>
+                  props.onToggleArticleSelection(article.id, event.target.checked)
+                }
+                aria-label={`انتخاب مقاله ${displayTitle(article, props.viewMode)}`}
               />
-            ) : null}
-            <strong>{displayTitle(article, props.viewMode)}</strong>
-            <small>
-              {article.feed.title} · {relativeTime(article.publishedAt ?? article.fetchedAt)}
-            </small>
-            <p>{displayExcerpt(article, props.viewMode)}</p>
-            <span className="article-row-meta">
-              {article.isStarred ? "★" : ""}
-              {translationStatusLabel(article.translationStatus)}
-            </span>
-          </button>
+            </label>
+            <button
+              className="article-open"
+              aria-pressed={props.selectedId === article.id}
+              onClick={() => props.setSelectedId(article.id)}
+            >
+              <span className={`status-dot ${article.translationStatus}`} />
+              {article.originalImageLocalUrl ? (
+                <img
+                  className="article-thumb"
+                  src={article.originalImageLocalUrl}
+                  alt=""
+                  loading="lazy"
+                />
+              ) : null}
+              <strong>{displayTitle(article, props.viewMode)}</strong>
+              <small>
+                {article.feed.title} · {relativeTime(article.publishedAt ?? article.fetchedAt)}
+              </small>
+              <p>{displayExcerpt(article, props.viewMode)}</p>
+              <span className="article-row-meta">
+                {article.isStarred ? "★" : ""}
+                {translationStatusLabel(article.translationStatus)}
+              </span>
+            </button>
+          </div>
         ))}
       </div>
       <ArticlePagination

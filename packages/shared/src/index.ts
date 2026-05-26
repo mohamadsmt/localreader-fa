@@ -73,6 +73,11 @@ export const articleQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).default(0)
 });
 
+export const articlePdfExportSchema = z.object({
+  articleIds: z.array(z.string().trim().min(1)).min(1).max(50),
+  viewMode: z.enum(articleViewModes)
+});
+
 export const tagCreateSchema = z.object({
   name: z.string().trim().min(1).max(80),
   color: z.string().trim().max(32).nullable().optional()
@@ -147,6 +152,7 @@ export type FeedCreateInput = z.infer<typeof feedCreateSchema>;
 export type FeedDeleteInput = z.infer<typeof feedDeleteSchema>;
 export type ArticlePatchInput = z.infer<typeof articlePatchSchema>;
 export type ArticleQuery = z.infer<typeof articleQuerySchema>;
+export type ArticlePdfExportInput = z.infer<typeof articlePdfExportSchema>;
 export type RuleCreateInput = z.infer<typeof ruleCreateSchema>;
 export type SettingsPatchInput = z.infer<typeof settingsPatchSchema>;
 

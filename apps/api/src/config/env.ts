@@ -65,7 +65,8 @@ const envSchema = z.object({
   STALE_JOB_TIMEOUT_MS: z.coerce.number().int().min(60000).max(24 * 60 * 60 * 1000).default(30 * 60 * 1000),
   LOCALREADER_USER_AGENT: z
     .string()
-    .default("LocalReader FA/1.0 (+https://localreader.fa; local-first RSS reader)")
+    .default("LocalReader FA/1.0 (+https://localreader.fa; local-first RSS reader)"),
+  PDF_CHROME_EXECUTABLE_PATH: z.string().optional()
 });
 
 export const env = envSchema.parse(process.env);
@@ -92,7 +93,8 @@ export function redactedEnvSummary(): Record<string, string | number | boolean> 
     metisBaseUrl: env.METIS_DEEPSEEK_BASE_URL,
     metisModel: env.METIS_DEEPSEEK_MODEL,
     ollamaBaseUrl: env.OLLAMA_BASE_URL,
-    ollamaModel: env.OLLAMA_MODEL
+    ollamaModel: env.OLLAMA_MODEL,
+    pdfChromeConfigured: Boolean(env.PDF_CHROME_EXECUTABLE_PATH)
   };
 }
 

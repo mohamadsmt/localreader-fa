@@ -1,6 +1,7 @@
 import { XMLParser } from "fast-xml-parser";
 import type { FastifyInstance } from "fastify";
 import {
+  articlePdfExportSchema,
   articlePatchSchema,
   articleQuerySchema,
   feedCreateSchema,
@@ -27,6 +28,10 @@ import {
 } from "../services/search/search.js";
 import { getReadinessStatus, runBackgroundPrep } from "../services/automation/backgroundPrep.js";
 import { enqueueTranslationJob } from "../services/translation/queue.js";
+import {
+  createArticlesPdf,
+  PdfBrowserUnavailableError
+} from "../services/export/articlePdf.js";
 
 interface IdParams {
   id: string;
@@ -385,6 +390,27 @@ export async function registerApiRoutes(app: FastifyInstance): Promise<void> {
     reply.header("content-type", "application/xml; charset=utf-8");
     reply.header("content-disposition", "attachment; filename=localreader-fa.opml");
     return renderOpml(feeds);
+  });
+
+  app.post("/api/export/articles/pdf", async (request, reply) => {
+    const parsed = articlePdfExportSchema.safeParse(request.body);
+    if (!parsed.success) {
+      reply.code(400).send({ error: "Validation failed", issues: parsed.error.issues });
+      return;
+    }
+    try {
+      const pdf = await createArticlesPdf(parsed.data);
+      return reply
+        .header("content-type", "application/pdf")
+        .header("content-disposition", "attachment; filename=localreader-fa-articles.pdf")
+        .send(pdf);
+    } catch (error) {
+      if (error instanceof PdfBrowserUnavailableError) {
+        reply.code(503).send({ error: error.message });
+        return;
+      }
+      throw error;
+    }
   });
 
   app.get("/api/export/json", async (_request, reply) => {

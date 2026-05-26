@@ -109,6 +109,7 @@ const baseSettings = {
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -567,6 +568,163 @@ describe("App reader", () => {
         )
       ).toBe(true)
     );
+  });
+
+  it("selects one or all visible articles for PDF export and clears the selection", async () => {
+    const secondArticle = {
+      ...article,
+      id: "a2",
+      title: "Second title",
+      originalTitle: "Second title",
+      translatedTitleFa: "مقاله دوم",
+      translatedSummaryFa: "خلاصه دوم"
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = requestUrl(input);
+        if (url.startsWith("/api/settings")) return json(baseSettings);
+        if (url.startsWith("/api/readiness")) return json(readyReadiness);
+        if (url.startsWith("/api/feeds")) return json([]);
+        if (url.startsWith("/api/folders")) return json([]);
+        if (url.startsWith("/api/tags")) return json([]);
+        if (url.startsWith("/api/articles/a1")) return json(article);
+        if (url.startsWith("/api/articles")) return json({ items: [article, secondArticle], total: 2 });
+        return json({});
+      })
+    );
+
+    render(<App />);
+    const exportButton = await screen.findByRole("button", { name: "خروجی PDF" });
+    expect(exportButton).toBeDisabled();
+
+    fireEvent.click(screen.getByLabelText("انتخاب مقاله عنوان فارسی"));
+    expect(screen.getByText("۱ مقاله انتخاب شده")).toBeInTheDocument();
+    expect(exportButton).not.toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "انتخاب همه صفحه" }));
+    expect(screen.getByText("۲ مقاله انتخاب شده")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "لغو انتخاب" }));
+    expect(screen.getByText("۰ مقاله انتخاب شده")).toBeInTheDocument();
+    expect(exportButton).toBeDisabled();
+  });
+
+  it("posts selected article ids and view mode when exporting a PDF", async () => {
+    const secondArticle = {
+      ...article,
+      id: "a2",
+      title: "Second title",
+      originalTitle: "Second title",
+      translatedTitleFa: "مقاله دوم",
+      translatedSummaryFa: "خلاصه دوم"
+    };
+    const createObjectUrl = vi.fn(() => "blob:localreader-pdf");
+    const revokeObjectUrl = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectUrl });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: revokeObjectUrl });
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.startsWith("/api/export/articles/pdf") && init?.method === "POST") {
+        return new Response(new Blob(["%PDF"], { type: "application/pdf" }), {
+          headers: { "content-type": "application/pdf" }
+        });
+      }
+      if (url.startsWith("/api/settings")) return json(baseSettings);
+      if (url.startsWith("/api/readiness")) return json(readyReadiness);
+      if (url.startsWith("/api/feeds")) return json([]);
+      if (url.startsWith("/api/folders")) return json([]);
+      if (url.startsWith("/api/tags")) return json([]);
+      if (url.startsWith("/api/articles/a1")) return json(article);
+      if (url.startsWith("/api/articles")) return json({ items: [article, secondArticle], total: 2 });
+      return json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "انتخاب همه صفحه" }));
+    fireEvent.click(screen.getByRole("button", { name: "خروجی PDF" }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/export/articles/pdf",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ articleIds: ["a1", "a2"], viewMode: "persian" })
+        })
+      )
+    );
+    expect(createObjectUrl).toHaveBeenCalled();
+    expect(clickSpy).toHaveBeenCalled();
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:localreader-pdf");
+  });
+
+  it("shows a busy state while the selected article PDF is being generated", async () => {
+    let resolvePdf: (response: Response) => void = () => {};
+    const pdfPromise = new Promise<Response>((resolve) => {
+      resolvePdf = resolve;
+    });
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:localreader-pdf")
+    });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = requestUrl(input);
+        if (url.startsWith("/api/export/articles/pdf") && init?.method === "POST") {
+          return pdfPromise;
+        }
+        if (url.startsWith("/api/settings")) return json(baseSettings);
+        if (url.startsWith("/api/readiness")) return json(readyReadiness);
+        if (url.startsWith("/api/feeds")) return json([]);
+        if (url.startsWith("/api/folders")) return json([]);
+        if (url.startsWith("/api/tags")) return json([]);
+        if (url.startsWith("/api/articles/a1")) return json(article);
+        if (url.startsWith("/api/articles")) return json({ items: [article], total: 1 });
+        return json({});
+      })
+    );
+
+    render(<App />);
+    fireEvent.click(await screen.findByLabelText("انتخاب مقاله عنوان فارسی"));
+    fireEvent.click(screen.getByRole("button", { name: "خروجی PDF" }));
+
+    const busyButton = await screen.findByRole("button", { name: "در حال ساخت PDF" });
+    expect(busyButton).toBeDisabled();
+    expect(busyButton).toHaveAttribute("aria-busy", "true");
+
+    resolvePdf(new Response(new Blob(["%PDF"], { type: "application/pdf" })));
+    await waitFor(() => expect(screen.getByRole("button", { name: "خروجی PDF" })).not.toBeDisabled());
+  });
+
+  it("clears selected articles when the article page or filters change", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.startsWith("/api/settings")) return json(baseSettings);
+      if (url.startsWith("/api/readiness")) return json(readyReadiness);
+      if (url.startsWith("/api/feeds")) return json([]);
+      if (url.startsWith("/api/folders")) return json([]);
+      if (url.startsWith("/api/tags")) return json([]);
+      if (url.startsWith("/api/articles/a1")) return json(article);
+      if (url.startsWith("/api/articles")) return json({ items: [article], total: 75 });
+      return json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    fireEvent.click(await screen.findByLabelText("انتخاب مقاله عنوان فارسی"));
+    expect(screen.getByText("۱ مقاله انتخاب شده")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "صفحه بعدی" }));
+    await waitFor(() => expect(screen.getByText("۰ مقاله انتخاب شده")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByLabelText("انتخاب مقاله عنوان فارسی"));
+    fireEvent.click(screen.getByRole("button", { name: "خوانده‌نشده" }));
+    await waitFor(() => expect(screen.getByText("۰ مقاله انتخاب شده")).toBeInTheDocument());
   });
 
   it("moves a feed to a folder from the feed management page", async () => {
